@@ -20,19 +20,11 @@
             font-size: 16px;
             font-weight: 300;
             line-height: 1.5555555556;
-
         }
 
         .header {
             top: 0;
             left: 0;
-            padding-top: 15px;
-            height: auto;
-            width: 100%;
-            background-color: rgb(16, 24, 32)
-        }
-
-        .footer {
             padding-top: 15px;
             height: auto;
             width: 100%;
@@ -57,19 +49,9 @@
             border-radius: 18px;
             padding: 23px 23px 23px 38px;
         }
-
         .survey-title {
             text-align: center;
             margin: 10px;
-        }
-
-        .survey-form-label {
-            font-weight: 500;
-            color: #07074d;
-            font-size: 14px;
-            line-height: 24px;
-            display: block;
-            word-wrap: break-word;
         }
     </style>
 </head>
@@ -80,150 +62,165 @@
 </div>
 
 <div class="survey-form-wrapper">
-    <div class="survey-title">
-        <h2>
+    <div class="survey-title p-4">
+        <h1>
             Collection scripts
-        </h2>
+        </h1>
+
     </div>
-    <div class="row row-cols-2 row-cols-md-2 mb-2 text-center">
-        <div class="col">
-            <div class="card mb-4 rounded-3 shadow-sm">
-                <div class="card-header py-3">
-                    <h4 class="my-0 fw-normal">MSAD Script</h4>
-                </div>
-                <div class="card-body">
-                    <ol>
-                        <li>
-                            <p>
-                                <a href="./msad_collections/msad-cs-1.0.5.0.b7b95e7-signed.ps1">
-                                    Download
-                                </a>
-                            </p>
-                        </li>
-                        <li>
-                            <p>Run script</p>
-                        </li>
-                        <li>
-                            <p>Save CSV</p>
-                        </li>
-                    </ol>
+
+    <div>
+        <h4 id="infoblox-sales-acceleration-scripts">Infoblox Sales Acceleration Scripts </h4>
+
+        <h4 id="about">About </h4>
+
+        <p>Infoblox sales acceleration scripts are a set of scripts that can be used to automate the sales process.
+            The scripts include the following:</p>
+        <ul>
+
+            <li><code>survey</code>: User survey for prospects/customers for data collection process. The survey
+                form can be used to collect information about the prospect/customer&#39;s environment, requirements,
+                and preferences.
+            </li>
+            <li><code>collections</code>: A set of collection scripts to gather acurate and up-to-date information
+                for Infoblox Solutions/Proposal. The scripts include the following:
+                <ul>
+                    <li><code>msad-cs</code>: Gathers up-to-date DDI information from a customers/prospects
+                        Microsoft Active Directory environment.
+                    </li>
+                </ul>
+            </li>
+        </ul>
+        <h4 id="requirements">Requirements </h4>
+
+        <ul>
+            <li>PowerShell 5.1 and above</li>
+            <li>Windows 10 and above</li>
+        </ul>
+    </div>
+    <div class="container container p-4">
+
+        <div class="row">
+            <div class="col-md-12">
+                <ul class="nav nav-tabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="tab1" data-bs-toggle="tab" href="#content1" role="tab"
+                           aria-controls="content1" aria-selected="true"><h4 class="my-0 fw-normal">Step 1. MS AD
+                            Collection script</h4></a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="tab2" data-bs-toggle="tab" href="#content2" role="tab"
+                           aria-controls="content2" aria-selected="false"><h4 class="my-0 fw-normal">Step 2. Survey
+                            script</h4></a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="tab3" data-bs-toggle="tab" href="#content3" role="tab"
+                           aria-controls="content3" aria-selected="false"><h4 class="my-0 fw-normal">Step 3. Uploading
+                            and sending data</h4></a>
+                    </li>
+
+                </ul>
+                <div class="tab-content mt-4">
+                    <div class="tab-pane fade show active" id="content1" role="tabpanel" aria-labelledby="tab1">
+                        <div class="row text-lg-start">
+
+                            <p>The <code>msad-cs</code> collection collects data DNS/DHCP/IPAM data from a Microsoft
+                                Active Directory
+                                environment. The collection includes MS AD topology, computers, users accounts, DNS
+                                zones, DHCP scopes,
+                                and IPAM data.</p>
+                            <h2 id="how-to-use-the-msad-cs-collection">How to use the <code>msad-cs</code> collection
+                            </h2>
+
+                            <p>To run this tool perform the following steps:</p>
+                            <ol>
+                                <li>Log on to a Windows machine where you plan to run the script.</li>
+                                <li>Ensure that all prerequisites are met to run the script.</li>
+                                <li>Copy script to a writable directory where the output files are to be stored and CD
+                                    to it using
+                                    Powershell console.
+                                </li>
+                                <li>
+                                    <a href="./msad_collections/msad-cs-1.0.5.0.b7b95e7-signed.ps1">
+                                        Download msad script
+                                    </a>
+                                </li>
+                                <li>Run the script.</li>
+                                <li>Examine output for errors (in the same console window or in the log file in the
+                                    ./@logs/ directory).
+                                </li>
+                                <li>Logs will be created in the ./@logs/ directory, output file - in the ./@output/
+                                    directory.
+                                </li>
+
+                            </ol>
+                            <h4 id="prerequisites">Prerequisites </h4>
+
+                            <p>The script is supporting Powershell 5.1 or later.</p>
+                            <p>It's mandatory that you run this script on the server with several Management Tools
+                                installed.
+                                You can check if you have them installed by running this command (run in elevated
+                                Powershell console):
+                                Windows Desktop systems:</p>
+                            <ul>
+                                <li>Get-WindowsCapability -Name "Rsat.ActiveDirectory.DS-LDS.Tools" -Online |
+                                    Select-Object
+                                    State
+                                </li>
+                                <li>Get-WindowsCapability -Name "Rsat.DHCP.Tools" -Online | Select-Object State</li>
+                                <li><p>Get-WindowsCapability -Name "Rsat.DNS.Tools" -Online | Select-Object State</p>
+                                    <p> Windows Server systems:</p>
+                                    <ul>
+                                        <li>Get-WindowsFeature -name "RSAT-AD-PowerShell"</li>
+                                        <li>Get-WindowsFeature -name "RSAT-ADDS"</li>
+                                        <li>Get-WindowsFeature -name "RSAT-ADLDS"</li>
+                                        <li>Get-WindowsFeature -name "RSAT-DHCP"</li>
+                                        <li>Get-WindowsFeature -name "RSAT-DNS"</li>
+                                    </ul>
+                                </li>
+                            </ul>
+                            <p>You can install them by running this command (run in elevated Powershell console):
+                                Windows Desktop systems:</p>
+                            <ul>
+                                <li>Add-WindowsCapability -Name "Rsat.ActiveDirectory.DS-LDS.Tools" -Online</li>
+                                <li>Add-WindowsCapability -Name "Rsat.DHCP.Tools" -Online</li>
+                                <li><p>Add-WindowsCapability -Name "Rsat.DNS.Tools" -Online</p>
+                                    <p> Windows Server systems:</p>
+                                    <ul>
+                                        <li>Add-WindowsFeature -name "RSAT-AD-PowerShell"</li>
+                                        <li>Add-WindowsFeature -name "RSAT-ADDS"</li>
+                                        <li>Add-WindowsFeature -name "RSAT-ADLDS"</li>
+                                        <li>Add-WindowsFeature -name "RSAT-DHCP"</li>
+                                        <li>Add-WindowsFeature -name "RSAT-DNS"</li>
+                                    </ul>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="content2" role="tabpanel" aria-labelledby="tab2">
+                        <h2>How to use the <code>survey data</code> collection </h2>
+
+                        <p>To collection data perform the following steps:</p>
+                        <ol>
+                            <li><a href="./survey/survey.html" download> Download survey.html </a></li>
+                            <li>Open and fill out the survey.html</li>
+                            <li>After submission Data CSV file will be created in the ./download catalog</li>
+                        </ol>
+                    </div>
+                    <div class="tab-pane fade" id="content3" role="tabpanel" aria-labelledby="tab3">
+                        <h2>How to upload the data </h2>
+                        <ol>
+                            <li>Open link on survey from your email </a> </li>
+                            <li>Check your company name and email is correct</li>
+                            <li>Attach and send files:
+                                <div><img src="img/img.png" alt=""></div>
+                            </li>
+                        </ol>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col">
-            <div class="card mb-4 rounded-3 shadow-sm">
-                <div class="card-header py-3">
-                    <h4 class="my-0 fw-normal">Survey</h4>
-                </div>
-                <div class="card-body">
-                    <ol>
-                        <li>
-                            <p>
-                                <a href="./survey/survey.html" download>
-                                    Download
-                                </a>
-                            </p>
-                        </li>
-                        <li>
-                            <p>Open and fill out</p>
-                        </li>
-                        <li>
-                            <p>Save CSV</p>
-                        </li>
-                    </ol>
-                </div>
-            </div>
-        </div>
-
     </div>
-    <div class="container">
-        <div class="row text-lg-start">
-            <h1 id="infoblox-sales-acceleration-scripts">Infoblox Sales Acceleration Scripts</h1>
-            <h1 id="about">About</h1>
-            <p>Infoblox sales acceleration scripts are a set of scripts that can be used to automate the sales process.
-                The scripts include the following:</p>
-            <ul>
-                <li><code>survey</code>: User survey for prospects/customers for data collection process. The survey
-                    form can be used to collect information about the prospect/customer&#39;s environment, requirements,
-                    and preferences.
-                </li>
-                <li><code>collections</code>: A set of collection scripts to gather acurate and up-to-date information
-                    for Infoblox Solutions/Proposal. The scripts include the following:
-                    <ul>
-                        <li><code>msad-cs</code>: Gathers up-to-date DDI information from a customers/prospects
-                            Microsoft Active Directory environment.
-                        </li>
-                    </ul>
-                </li>
-            </ul>
-            <h1 id="requirements">Requirements</h1>
-            <ul>
-                <li>PowerShell 5.1 and above</li>
-                <li>Windows 10 and above</li>
-            </ul>
-            <h1 id="ms-ad-collection-overview">MS AD Collection Overview</h1>
-            <p>The <code>msad-cs</code> collection collects data DNS/DHCP/IPAM data from a Microsoft Active Directory
-                environment. The collection includes MS AD topology, computers, users accounts, DNS zones, DHCP scopes,
-                and IPAM data.</p>
-            <h2 id="how-to-use-the-msad-cs-collection">How to use the <code>msad-cs</code> collection</h2>
-            <p>To run this tool perform the following steps:</p>
-            <ol>
-                <li>Log on to a Windows machine where you plan to run the script.</li>
-                <li>Ensure that all prerequisites are met to run the script.</li>
-                <li>Copy script to a writable directory where the output files are to be stored and CD to it using
-                    Powershell console.
-                </li>
-                <li>Run the script.</li>
-                <li>Examine output for errors (in the same console window or in the log file in the ./@logs/
-                    directory).
-                </li>
-                <li>Logs will be created in the ./@logs/ directory, output file - in the ./@output/ directory.</li>
-                <li>Zip and send all output and log files.</li>
-            </ol>
-            <h2 id="prerequisites">Prerequisites</h2>
-            <p>The script is supporting Powershell 5.1 or later.</p>
-            <p>It&#39;s mandatory that you run this script on the server with several Management Tools installed.
-                You can check if you have them installed by running this command (run in elevated Powershell console):
-                Windows Desktop systems:</p>
-            <ul>
-                <li>Get-WindowsCapability -Name &quot;Rsat.ActiveDirectory.DS-LDS.Tools&quot; -Online | Select-Object
-                    State
-                </li>
-                <li>Get-WindowsCapability -Name &quot;Rsat.DHCP.Tools&quot; -Online | Select-Object State</li>
-                <li><p>Get-WindowsCapability -Name &quot;Rsat.DNS.Tools&quot; -Online | Select-Object State</p>
-                    <p> Windows Server systems:</p>
-                    <ul>
-                        <li>Get-WindowsFeature -name &quot;RSAT-AD-PowerShell&quot;</li>
-                        <li>Get-WindowsFeature -name &quot;RSAT-ADDS&quot;</li>
-                        <li>Get-WindowsFeature -name &quot;RSAT-ADLDS&quot;</li>
-                        <li>Get-WindowsFeature -name &quot;RSAT-DHCP&quot;</li>
-                        <li>Get-WindowsFeature -name &quot;RSAT-DNS&quot;</li>
-                    </ul>
-                </li>
-            </ul>
-            <p>You can install them by running this command (run in elevated Powershell console):
-                Windows Desktop systems:</p>
-            <ul>
-                <li>Add-WindowsCapability -Name &quot;Rsat.ActiveDirectory.DS-LDS.Tools&quot; -Online</li>
-                <li>Add-WindowsCapability -Name &quot;Rsat.DHCP.Tools&quot; -Online</li>
-                <li><p>Add-WindowsCapability -Name &quot;Rsat.DNS.Tools&quot; -Online</p>
-                    <p> Windows Server systems:</p>
-                    <ul>
-                        <li>Add-WindowsFeature -name &quot;RSAT-AD-PowerShell&quot;</li>
-                        <li>Add-WindowsFeature -name &quot;RSAT-ADDS&quot;</li>
-                        <li>Add-WindowsFeature -name &quot;RSAT-ADLDS&quot;</li>
-                        <li>Add-WindowsFeature -name &quot;RSAT-DHCP&quot;</li>
-                        <li>Add-WindowsFeature -name &quot;RSAT-DNS&quot;</li>
-                    </ul>
-                </li>
-            </ul>
-
-        </div>
-
-
-    </div>
-
-
 </div>
 </body>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
