@@ -14,6 +14,7 @@ declare -a tools=(
 "awk"
 "sha256sum"
 "eval"
+"ps"
 )
 missing_tools=0
 
@@ -34,8 +35,8 @@ fi
 
 
 #region Hard-coded variables
-DOWNLOAD_URL="URL"
-EXPECTED_HASH="HASHSUM"
+DOWNLOAD_URL="https://github.com/infobloxopen/infoblox-sa-scripts/releases/download/isc-v1.0.5.0/SLSENB_ISC_CS_1.0.5.0.tags-v1.0.5.fee408a.zip"
+EXPECTED_HASH="9743094C7C5EE6BDD33B11A679D3585586F5DBFE506129C11960461356AE65A4"
 DESTINATION_FOLDER="./ib-isc-cs"
 
 if [ -d "$DESTINATION_FOLDER" ]; then
@@ -103,4 +104,9 @@ echo "    [!!!] Please find detailed usage instructions in $DESTINATION_FOLDER/R
 echo " "
 echo "    Quick run:"
 echo "    cd $DESTINATION_FOLDER"
-echo "    ./isc_cs_run-solution.sh <query-string>"
+echo "    ./isc_cs_run-solution.sh --mode|-m <dns|dhcp> --scenario|-s <local|packer|ssh|mount> [--server|-c <servers list>] [--path|-p <path>] ... [<repeat set of parameters>]"
+echo " "
+echo "    Examples:"
+echo "    ./isc_cs_run-solution.sh --mode dns --scenario ssh --server 10.10.6.30,10.10.6.31"
+echo "    ./isc_cs_run-solution.sh -m dns -s packer -p /home/user/data/"
+echo "    ./isc_cs_run-solution.sh --mode dns --scenario ssh --server 10.10.6.30,10.10.6.31 --mode dhcp --scenario local"
