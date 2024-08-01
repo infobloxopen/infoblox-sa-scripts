@@ -1,7 +1,7 @@
 <#
 .NOTES
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.
-Version: 1.0.5.1.main.8948ce4
+Version: 1.0.6.0.tags-v1.0.6.990e032
 
 
 PLEASE NOTE - To enable script execution on the server run:
@@ -89,7 +89,7 @@ If you're going to execute the script under limited user account, please check t
         * User account must be a member of 'DNSAdmins' domain group (exist in each AD domain).
         * User account must have 'Read' permission on a server level in DNS MMC. This must be done in each DNS server in AD forest.
 
-NOTE: If you decided to you administrative account to run the script, please ensure you're executing it from elevated command prompt. Otherwise, you may
+NOTE: If you decided to use administrative account to run the script, please ensure you're executing it from elevated command prompt. Otherwise, you may
       receive errors while running operations against DHCP and/or DNS services.
 
 --
@@ -129,11 +129,67 @@ List of metrics:
     - gen_site_count
     - gen_vendor
 
+
+SUPPORTED PARAMETERS
+
+This script supports several parameters, used to control the collection process and output verbosity. The list below provides a list of parameters
+and example of usage.
+
+!!! Important !!!
+Please note that some of the supported parameters are mutually exclusive, meaning, you cannot provide some of them while others are also specified.
+In such case, Powershell will print default error message:
+    ```
+        Parameter set cannot be resolved using the specified named parameters.
+        One or more parameters issued cannot be used together or an insufficient number of parameters were provided.
+    ```
+    
+
+    * -processOneMetricOnly <metric name>
+        Provide this parameter to collect only one metric. The list of valid metrics can be found in this same FUNCTIONALITY section or it will be 
+        printed in the error message if you provide unsupported metric name. This parameter is mutually exclusive with 'processDnsMetrics', 
+        'processDhcpMetrics' and 'processGenMetrics' parameters.
+
+    * -processDnsMetrics
+        Swith-type parameter. Specify it to process DNS metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
+
+    * -processDhcpMetrics
+        Swith-type parameter. Specify it to process DHCP metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
+
+    * -processGenMetrics
+        Swith-type parameter. Specify it to process GEN metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
+
+    * -Verbose
+        This is default switch-type parameter of Powershell used to enable verbose output to console. Use this to get more detailed information about
+        what is happening during collection process.
+
 #>
 
 
-[CmdletBinding()]
-param ();
+[CmdletBinding(DefaultParameterSetName = "All")]
+param (
+    # Process one metric, if specified
+    [Parameter(ParameterSetName = "OneMetricOnly")]
+    [string]
+    $processOneMetricOnly,
+
+
+    # Process DNS metrics
+    [Parameter(ParameterSetName = "ProcessGenOrDnsOrDhcpMetrics")]
+    [switch]
+    $processDnsMetrics,
+
+
+    # Process DHCP metrics
+    [Parameter(ParameterSetName = "ProcessGenOrDnsOrDhcpMetrics")]
+    [switch]
+    $processDhcpMetrics,
+
+
+    # Process GEN metrics
+    [Parameter(ParameterSetName = "ProcessGenOrDnsOrDhcpMetrics")]
+    [switch]
+    $processGenMetrics
+);
 
 
 #region ./_templates/common--main--header.ps1
@@ -1067,6 +1123,120 @@ function Export-IbCsv {
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Export-IbCsv.ps1
 
 
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/New-IbCsMetricsList.ps1
+function New-IbCsMetricsList {
+    [CmdletBinding()]
+    param (
+        # Process one metric, if specified
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]
+        $customMetricName,
+
+        # Process DNS metrics
+        [Parameter()]
+        [switch]
+        $processDnsMetrics,
+
+        # Process DHCP metrics
+        [Parameter()]
+        [switch]
+        $processDhcpMetrics,
+
+        # Process GEN metrics
+        [Parameter()]
+        [switch]
+        $processGenMetrics
+    );
+
+    
+    BEGIN {
+        "Running 'Get-IbCsMetricsList'." | Write-IbLogfile | Write-Verbose;
+
+        "Building metrics list to process." | Write-IbLogfile | Write-Verbose;
+
+
+        $defaultMetricsToProcess = @(
+            "dhcp_device_count"
+            "dhcp_lease_time"
+            "dhcp_lps"
+            "dhcp_server_count"
+            "dhcp_subnet_count"
+            "dhcp_vendor"
+            "dns_ext_dnssec_used"
+            "dns_ext_forward_zone_count"
+            "dns_ext_ipv6_used"
+            "dns_ext_qps"
+            "dns_ext_record_count"
+            "dns_ext_reverse_zone_count"
+            "dns_ext_server_count"
+            "dns_int_ad_domain_count"
+            "dns_int_caching_forwarders"
+            "dns_int_dnssec_used"
+            "dns_int_forward_zone_count"
+            "dns_int_ipv6_used"
+            "dns_int_qps"
+            "dns_int_record_count"
+            "dns_int_reverse_zone_count"
+            "dns_int_server_count"
+            "dns_int_vendor"
+            "gen_active_ip"
+            "gen_active_user"
+            "gen_site_count"
+            "gen_vendor"
+        );
+    }
+
+    
+    PROCESS {
+        if ($customMetricName)
+        {
+            if ($customMetricName -in $defaultMetricsToProcess)
+            {
+                "Metric '$customMetricName' will be processed only as per 'processOneMetricOnly' parameter." | Write-IbLogfile | Write-Verbose;
+                $metricsToProcess = @($customMetricName);
+            }
+            else
+            {
+                "Value, provided for 'processOneMetricOnly' parameter, is incorrect. Please consult with help section." | Write-IbLogfile -severity Error | Write-Error;
+                "List of supported metrics:`n$defaultMetricsToProcess" | Out-String | Write-IbLogfile -severity Error | Write-Error;
+                $metricsToProcess = @();
+            }
+        }
+        else
+        {
+            $metricsToProcess = @();
+
+
+            if ($processDnsMetrics)
+            {
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dns_"};
+                "DNS metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+            if ($processDhcpMetrics)
+            {
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dhcp_"};
+                "DHCP metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+            if ($processGenMetrics)
+            {
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^gen_"};
+                "GEN metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+        }
+
+
+        return $metricsToProcess;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbCsMetricsList'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/New-IbCsMetricsList.ps1
+
+
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbCsvfilePath.ps1
 function Set-IbCsvfilePath {
     [CmdletBinding()]
@@ -1081,7 +1251,7 @@ function Set-IbCsvfilePath {
 
     #region Create path to the log file if it doesn't exist
     if (-not $(Test-Path -Path "$csvPath/$fileName")) {
-        New-Item -Path "$csvPath/$fileName" -Force;
+        New-Item -Path "$csvPath/$fileName" -Force | Out-Null;
     }
     #endregion /Create path to the log file if it doesn't exist
 
@@ -1113,7 +1283,7 @@ function Set-IbLogfilePath {
     {
         #region Create path to the log file if it doesn't exist
         if (-not $(Test-Path -Path "$logPath/$fileName")) {
-            New-Item -Path "$logPath/$fileName" -Force;
+            New-Item -Path "$logPath/$fileName" -Force | Out-Null;
         }
         #endregion /Create path to the log file if it doesn't exist
     
@@ -2382,7 +2552,7 @@ function Get-IbAdDhcpServerLps {
 
 
 #region ./_templates/common--main--body.ps1
-$version = "1.0.5.1.main.8948ce4";
+$version = "1.0.6.0.tags-v1.0.6.990e032";
 
 
 $dateTime = Get-Date -Format "yyyy-MM-dd_HH-mm-ss";
@@ -2392,6 +2562,7 @@ $result = @();
 Set-IbLogfilePath -fileName "$dateTime.log";
 Set-IbLogfilePath -fileName "$dateTime.pwsh.log" -powershellTranscript;
 Set-IbCsvfilePath -fileName "$dateTime.csv";
+Write-Output " ";
 "Script version: $version" | Write-IbLogfile | Write-Output;
 Write-Output "";
 
@@ -2404,36 +2575,20 @@ $global:infoblox_errors = @();
 Start-Transcript -Path $env:INFOBLOX_PWSH_TRANSCRIPT_PATH;
 
 
+#region Define metrics to collect
+$params = @{
+    customMetricName = $processOneMetricOnly;
+    processDnsMetrics = $processDnsMetrics;
+    processDhcpMetrics = $processDhcpMetrics;
+    processGenMetrics = $processGenMetrics;
+};
+
+$metricsToProcess = New-IbCsMetricsList @params -Verbose;
+#endregion /Define metrics to collect
+
+
 #region Getting values for each metric and pushing them to CSV
-@(
-    "dhcp_server_count"
-    "dhcp_lps"
-    "dhcp_subnet_count"
-    "dhcp_vendor"
-    "dhcp_lease_time"
-    "dhcp_device_count"
-    "dns_ext_ipv6_used"
-    "dns_int_ipv6_used"
-    "dns_int_caching_forwarders"    
-    "dns_ext_forward_zone_count"
-    "dns_ext_reverse_zone_count"
-    "dns_int_forward_zone_count"
-    "dns_int_reverse_zone_count"
-    "dns_ext_server_count"
-    "dns_int_server_count"
-    "gen_active_user"
-    "gen_active_ip"
-    "dns_ext_record_count"
-    "dns_int_record_count"
-    "dns_int_dnssec_used"
-    "dns_ext_dnssec_used"
-    "dns_int_vendor"
-    "gen_vendor"
-    "dns_int_qps"
-    "dns_ext_qps"
-    "dns_int_ad_domain_count"
-    "gen_site_count"
-) | %{
+$metricsToProcess | %{
     $metric = $_;
     Write-Output "*** Start '$_' ***";
     $metric = & "infoblox_$_";
@@ -2453,11 +2608,7 @@ if ($global:infoblox_errors.count -gt 0)
     "[!!!] Results provided in CSV file should not be considered as correct." | Write-IbLogfile -severity Warning | Write-Warning;
 
     "Here's the short report:" | Write-IbLogfile -severity Warning -noOutput;
-    # "Here's the short report:" | Write-Warning;
-    
-    
     $global:infoblox_errors | Write-IbLogfile -severity Warning -noOutput;
-    # $global:infoblox_errors | Out-String -Stream -Width 1000 | Write-Host;
 }
 
 
