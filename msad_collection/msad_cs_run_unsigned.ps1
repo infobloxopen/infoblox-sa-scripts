@@ -1,7 +1,7 @@
 <#
 .NOTES
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.
-Version: 1.0.8.0.tags-v1.0.8.520953b
+Version: 1.0.8.0.tags-v1.0.8.9161f95
 
 
 PLEASE NOTE - To enable script execution on the server run:
@@ -197,6 +197,1206 @@ param (
 
 
 #region ./_helpers/public/
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Export-IbCsv.ps1
+function Export-IbCsv {
+    [CmdletBinding()]
+    param (
+        # Array of arrays to export
+        [Parameter(Mandatory, ValueFromPipeline)][array[]]$array,
+
+        # CSV separator
+        [Parameter()][string]$separator = ","
+    );
+    
+    
+    BEGIN {
+        $csvPath = $env:INFOBLOX_SE_CSVPATH;
+    }
+
+    
+    PROCESS {
+        foreach ($item in $array) {
+            $csvString = "";
+            foreach ($subItem in $item) {
+                $csvString += "$subItem$separator";
+            }
+            $csvString = $csvString.TrimEnd($separator);
+
+            Add-Content -Path $csvPath -Value $csvString;
+        }
+    }
+    
+
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Export-IbCsv.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
+function Get-IbCimExceptionCustomErrorMessage {
+    [CmdletBinding()]
+    param (
+        # Value of $_.Exception.MessageId
+        [Parameter()]
+        [Microsoft.Management.Infrastructure.CimException]
+        $exception
+    );
+
+    
+    BEGIN {}
+
+    
+    PROCESS {
+        $defaultText = "Error code: '$($exception.MessageId)'. ";
+        $defaultText += $exception.ErrorData.CimInstanceProperties | ?{$_.name -eq "error_WindowsErrorMessage"} | Select-Object -ExpandProperty Value;
+        $defaultText += "`n`t";
+
+        switch ($exception.MessageId) {
+            "WIN32 4"       { $result = $defaultText + "The issue could be on local computer or remote server. Too many opened files in the system, hence request cannot be completed."; }
+            "WIN32 5"       { $result = $defaultText + "Current user does not have permissions to read from the server."; }
+            "WIN32 1721"    { $result = $defaultText + "Most likely the server or local computer does not have free resources (usually - memory) to process the request."; }
+            "WIN32 1722"    { $result = $defaultText + "Most likely the server is turned off or not accessible through network."; }
+            "WIN32 1723"    { $result = $defaultText + "Most likely the server is experiencing heavy load."; }
+            "DHCP 20070"    { $result = $defaultText + "Powershell module could not connect to any AD controller."; }
+            Default         { $result = $defaultText + "--- No detailed explanation ---"; }
+        }
+
+        return $result;
+    }
+
+    
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/New-IbCsMetricsList.ps1
+function New-IbCsMetricsList {
+    [CmdletBinding()]
+    param (
+        # Process one metric, if specified
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]
+        $customMetricName,
+
+        # Process DNS metrics
+        [Parameter()]
+        [switch]
+        $processDnsMetrics,
+
+        # Process DHCP metrics
+        [Parameter()]
+        [switch]
+        $processDhcpMetrics,
+
+        # Process GEN metrics
+        [Parameter()]
+        [switch]
+        $processGenMetrics
+    );
+
+    
+    BEGIN {
+        "Running 'Get-IbCsMetricsList'." | Write-IbLogfile | Write-Verbose;
+
+        "Building metrics list to process." | Write-IbLogfile | Write-Verbose;
+
+
+        $defaultMetricsToProcess = @(
+            "dhcp_device_count"
+            "dhcp_lease_time"
+            "dhcp_lps"
+            "dhcp_server_count"
+            "dhcp_subnet_count"
+            "dhcp_vendor"
+            "dns_ext_dnssec_used"
+            "dns_ext_forward_zone_count"
+            "dns_ext_ipv6_used"
+            "dns_ext_qps"
+            "dns_ext_record_count"
+            "dns_ext_reverse_zone_count"
+            "dns_ext_server_count"
+            "dns_int_ad_domain_count"
+            "dns_int_caching_forwarders"
+            "dns_int_dnssec_used"
+            "dns_int_forward_zone_count"
+            "dns_int_ipv6_used"
+            "dns_int_qps"
+            "dns_int_record_count"
+            "dns_int_reverse_zone_count"
+            "dns_int_server_count"
+            "dns_int_vendor"
+            "gen_active_ip"
+            "gen_active_user"
+            "gen_site_count"
+            "gen_vendor"
+        );
+    }
+
+    
+    PROCESS {
+        if ($customMetricName)
+        {
+            if ($customMetricName -in $defaultMetricsToProcess)
+            {
+                "Metric '$customMetricName' will be processed only as per 'processOneMetricOnly' parameter." | Write-IbLogfile | Write-Verbose;
+                $metricsToProcess = @($customMetricName);
+            }
+            else
+            {
+                "Value, provided for 'processOneMetricOnly' parameter, is incorrect. Please consult with help section." | Write-IbLogfile -severity Error | Write-Error;
+                "List of supported metrics:`n$defaultMetricsToProcess" | Out-String | Write-IbLogfile -severity Error | Write-Error;
+                $metricsToProcess = @();
+            }
+        }
+        else
+        {
+            $metricsToProcess = @();
+
+
+            if ($processDnsMetrics)
+            {
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dns_"};
+                "DNS metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+            if ($processDhcpMetrics)
+            {
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dhcp_"};
+                "DHCP metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+            if ($processGenMetrics)
+            {
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^gen_"};
+                "GEN metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+        }
+
+
+        return $metricsToProcess;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbCsMetricsList'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/New-IbCsMetricsList.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbCsvfilePath.ps1
+function Set-IbCsvfilePath {
+    [CmdletBinding()]
+    param (
+        # Csv file name
+        [Parameter()][string]$fileName
+    );
+
+    
+    $csvPath = "./@output/";
+
+
+    #region Create path to the log file if it doesn't exist
+    if (-not $(Test-Path -Path "$csvPath/$fileName")) {
+        New-Item -Path "$csvPath/$fileName" -Force | Out-Null;
+    }
+    #endregion /Create path to the log file if it doesn't exist
+
+
+    Write-Verbose "Setting environment variable 'INFOBLOX_SE_CSVPATH = $csvPath/$fileName' to store CSV file path.";
+    Set-Item -Path "env:INFOBLOX_SE_CSVPATH" -Value "$csvPath/$fileName";
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbCsvfilePath.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbLogfilePath.ps1
+function Set-IbLogfilePath {
+    [CmdletBinding()]
+    param (
+        [Parameter()][string]$fileName,
+
+        [Parameter()][switch]$powershellTranscript
+    );
+
+
+    $logPath = "./@logs/"
+
+    if (-not $fileName) {
+        $fileName = "{0}.log" -f $(Get-Date -Format "yyyy-MM-dd_HH-mm-ss");
+    }
+
+
+    if (-not $powershellTranscript)
+    {
+        #region Create path to the log file if it doesn't exist
+        if (-not $(Test-Path -Path "$logPath/$fileName")) {
+            New-Item -Path "$logPath/$fileName" -Force | Out-Null;
+        }
+        #endregion /Create path to the log file if it doesn't exist
+    
+        Write-Verbose "Setting environment variable 'INFOBLOX_SE_LOGPATH = $logPath/$fileName' to store log file path.";
+        Set-Item -Path "env:INFOBLOX_SE_LOGPATH" -Value "$logPath/$fileName";
+    
+        Write-Verbose "Writing init record into log file.";
+        Write-IbLogfile "Log file initialized." -noOutput;
+    }
+    else
+    {
+        Write-Verbose "Setting environment variable 'INFOBLOX_PWSH_TRANSCRIPT_PATH = $logPath/$fileName' to store Powershell transcript path.";
+        Set-Item -Path "env:INFOBLOX_PWSH_TRANSCRIPT_PATH" -Value "$logPath/$fileName";
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbLogfilePath.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Write-IbLogfile.ps1
+function Write-IbLogfile {
+    [CmdletBinding()]
+    param (
+        # Message passed to the log
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [ValidateNotNullorEmpty()]
+        [string]
+        $text,
+
+        # Message severity passed to the log
+        [Parameter()]
+        [ValidateNotNullorEmpty()]
+        [ValidateSet("Info", "Error", "Warning")]
+        [string]
+        $severity = "Info",
+
+        # Do not return $text as output
+        [Parameter()][switch]$noOutput
+    );
+
+
+    BEGIN {
+        $logPath = $env:INFOBLOX_SE_LOGPATH;
+    }
+ 
+
+    PROCESS {
+        $datetimeStamp = Get-Date -Format "yyyy-MM-dd HH-mm-ss->fff";
+        
+        #region Format spaces
+        if ($severity.Length -le 7) {
+            $severityStamp = "[$severity]";
+            for ($i = $severity.Length; $i -le 7; $i++) {
+                $severityStamp = $severityStamp + " ";
+            }
+        }
+        #endregion /Format spaces
+
+
+        try {
+            Add-Content -Path $logPath -Encoding UTF8 -Value $($datetimeStamp + "  $severityStamp " + $text) -ErrorAction Stop;
+        }
+        catch {
+            Write-Error "Error while trying to write the log file '$logPath'.";
+            throw $_;
+        }
+
+
+        if (-not $noOutput) { return $text; }
+    }
+ 
+
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Write-IbLogfile.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpScope.ps1
+function Get-IbAdDhcpScope {
+    [CmdletBinding(DefaultParameterSetName = "All")]
+    param (
+        # DHCP server FQDN
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [string]
+        $dhcpServer,
+        
+        # Get only 'ipv4' scopes
+        [Parameter(ParameterSetName = "ipv4")]
+        [switch]
+        $ipv4,
+
+        # Get only 'ipv6' scopes
+        [Parameter(ParameterSetName = "ipv6")]
+        [switch]
+        $ipv6
+    );
+
+    
+    BEGIN {
+        "Running 'Get-IbAdDhcpScope'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result = $null;
+        $ipv4Scopes = $null;
+        $ipv6Scopes = $null;
+
+
+        #region Get all scopes
+        try
+        {
+            "Getting scopes from the DHCP server '$dhcpServer'." | Write-IbLogfile | Write-Verbose;
+            [array]$ipv4Scopes = Get-DhcpServerv4Scope -ComputerName $dhcpServer -ErrorAction Stop;
+            [array]$ipv6Scopes = Get-DhcpServerv6Scope -ComputerName $dhcpServer -ErrorAction Stop;
+        }
+        catch [Microsoft.Management.Infrastructure.CimException]
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_dhcp";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            $explanation = Get-IbCimExceptionCustomErrorMessage -exception $_.Exception;
+            "Error while trying to get scopes from DHCP server '$dhcpServer'.`n`t$_`n`t$explanation`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+        catch
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_dhcp";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Unkown error type. Error while trying to get scopes from DHCP server '$dhcpServer'.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+        #endregion /Get all scopes
+
+
+        if ($ipv4)
+        {
+            "'ipv4' flag passed. Returning IPv4 scopes only." | Write-IbLogfile | Write-Verbose;
+            [System.Collections.ArrayList]$result = $ipv4Scopes;
+        }
+        elseif ($ipv6)
+        {
+            "'ipv6' flag passed. Returning IPv6 scopes only." | Write-IbLogfile | Write-Verbose;
+            [System.Collections.ArrayList]$result = $ipv6Scopes;
+        }
+        else
+        {
+            [System.Collections.ArrayList]$result = $ipv4Scopes + $ipv6Scopes;
+        }
+
+
+        if ($result)
+        {
+            $result | %{ $_ | Add-Member -MemberType NoteProperty -Name "DhcpServer" -Value $dhcpServer };
+        }
+        else
+        {
+            $result = @();
+        }
+
+        
+        "$($result.Count) scopes found." | Write-IbLogfile | Write-Verbose;
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdDhcpScope'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpScope.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServer.ps1
+function Get-IbAdDhcpServer {
+    [CmdletBinding()]
+    param (
+        # Do not verify if DHCP is running
+        [Parameter()]
+        [switch]
+        $doNotTestService
+    );
+
+    
+    BEGIN {
+        "Running 'Get-IbAdDhcpServer'." | Write-IbLogfile | Write-Verbose;
+
+        $result = $null;
+    }
+
+    
+    PROCESS {
+        "Getting list of authorized DHCP servers from AD." | Write-IbLogfile | Write-Verbose;
+
+
+        #region Getting DHCP servers using Powershell
+        try
+        {
+            [array]$result = Get-DhcpServerInDC -ErrorAction Stop | Select-Object -ExpandProperty DnsName;
+        }
+        catch [Microsoft.Management.Infrastructure.CimException]
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_dhcp";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Error while trying to get the list of DHCP servers from AD`n`t$_`n`t$(Get-IbCimExceptionCustomErrorMessage -exception $_.Exception)`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+        catch
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_dhcp";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Unkown error type. Error while trying to get the list of DHCP servers from AD.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+        #endregion /Getting DHCP servers using Powershell
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdDhcpServer'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLease.ps1
+function Get-IbAdDhcpServerLease {
+    [CmdletBinding(DefaultParameterSetName = "All")]
+    param (
+        # DHCP server
+        [Parameter(Mandatory)]
+        [string]
+        $dhcpServer,
+
+        # Scope ID
+        [Parameter(Mandatory)]
+        [string]
+        $scopeId,
+
+        # IPv4
+        [Parameter(ParameterSetName = "ipv4")]
+        [switch]
+        $ipv4,
+
+        # IPv6
+        [Parameter(ParameterSetName = "ipv6")]
+        [switch]
+        $ipv6
+    );
+
+    
+    BEGIN {
+        "Running 'Get-IbAdDhcpServerLease'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        #region IPv4 leases
+        if ($ipv4)
+        {
+            try
+            {
+                $result = Get-DhcpServerv4Lease -ComputerName $dhcpServer -scopeid $scopeId;
+            }
+            catch [Microsoft.Management.Infrastructure.CimException]
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_dhcp";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                $explanation = Get-IbCimExceptionCustomErrorMessage -exception $_.Exception;
+                "Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope.`n`t$_`n`t$explanation`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+            catch
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_dhcp";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Unkown error type. Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+        }
+        #endregion /IPv4 leases
+
+
+        #region IPv6 leases
+        if ($ipv6)
+        {
+            try
+            {
+                $result = Get-DhcpServerv6Lease -ComputerName $dhcpServer -scopeid $scopeId;
+            }
+            catch [Microsoft.Management.Infrastructure.CimException]
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_dhcp";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                $explanation = Get-IbCimExceptionCustomErrorMessage -exception $_.Exception;
+                "Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope.`n`t$_`n`t$explanation`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+            catch
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_dhcp";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Unkown error type. Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+        }
+        #endregion /IPv6 leases
+        
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdDhcpServerLease'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLease.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLps.ps1
+function Get-IbAdDhcpServerLps {
+    [CmdletBinding()]
+    param (
+        # DHCP server
+        [Parameter(ValueFromPipeline, Mandatory)]
+        [string]
+        $dhcpServer
+    );
+
+    
+    BEGIN {
+        $result = $null;
+        "Running 'Get-IbAdDhcpServerLps'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        "Getting information from '$dhcpServer' DHCP server." | Write-IbLogfile | Write-Verbose;
+
+        #region Getting DHCP server statistics
+            #region Getting IPv4 statistics
+            try
+            {
+                "Getting DHCP server IPv4 statistics." | Write-IbLogfile | Write-Verbose;
+                $ipv4Stats = Get-DhcpServerv4Statistics -ComputerName $dhcpServer -ErrorAction Stop;
+            }
+            catch [Microsoft.Management.Infrastructure.CimException]
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_dhcp";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Error while trying to get DHCP server IPv4 statistics from the server '$dhcpServer'.`n`t$_`n`t$(Get-IbCimExceptionCustomErrorMessage -exception $_.Exception)`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+            catch
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_dhcp";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Unkown error type. Error while trying to get DHCP server IPv4 statistics from the server '$dhcpServer'.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+            #endregion /Getting IPv4 statistics
+
+
+            #region Getting IPv6 statistics
+            try
+            {
+                "Getting DHCP server IPv6 statistics." | Write-IbLogfile | Write-Verbose;
+                $ipv6Stats = Get-DhcpServerv6Statistics -ComputerName $dhcpServer -ErrorAction Stop;
+            }
+            catch [Microsoft.Management.Infrastructure.CimException]
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_dhcp";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Error while trying to get DHCP server IPv6 statistics from the server '$dhcpServer'.`n`t$_`n`t$(Get-IbCimExceptionCustomErrorMessage -exception $_.Exception)`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+            catch
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_dhcp";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Unkown error type. Error while trying to get DHCP server IPv6 statistics from the server '$dhcpServer'.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+            #endregion /Getting IPv6 statistics
+            #endregion /Getting DHCP server statistics
+
+            $uptime = ($(Get-Date) - $ipv4Stats.ServerStartTime).TotalSeconds;
+            [float]$ipv4Lps = [Math]::Round($ipv4Stats.Acks / $uptime, 2);
+            [float]$ipv6Lps = [Math]::Round($ipv6Stats.Confirms / $uptime, 2);
+
+            return $($ipv4Lps + $ipv6Lps);
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdDhcpServerLps'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLps.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdDomainController.ps1
+function Get-IbAdDomainController {
+    [CmdletBinding()]
+    param (
+        # Domain name
+        [Parameter(Mandatory)]
+        [string]
+        $domainName,
+
+        # Filter by Global Catalog role
+        [Parameter()]
+        [switch]
+        $globalCatalog
+    );
+
+    
+    BEGIN {
+        $result = -2;
+        "Running 'Get-IbAdDomainController'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $params = @{};
+
+        #region Processing 'domainName' parameter flag was passed
+        if ($domainName)
+        {
+            "Discovering AD domain controllers for the '$domainName' AD domain." | Write-IbLogfile | Write-Verbose;
+            $params.Server = $domainName;
+        }
+        else
+        {
+            "Discovering AD domain controllers for the current AD domain." | Write-IbLogfile | Write-Verbose;
+            $params = @{};
+        }
+        #endregion /Processing 'domainName' parameter flag was passed
+
+
+        #region 'globalCatalog' flag was passed
+        if ($globalCatalog) {
+            "'globalCatalog' flag was passed." | Write-IbLogfile | Write-Verbose;
+            $params.Service = "GlobalCatalog";
+        }
+        #endregion /'globalCatalog' flag was passed
+
+
+        #region Sending request
+        try
+        {
+            [array]$result = Get-ADDomainController @params -Filter "*" -ErrorAction Stop;
+            "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+        }
+        catch
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Error while trying to discover AD domain controller for '$domain' domain.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+        #endregion /Sending request
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdDomainController'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdDomainController.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdForest.ps1
+function Get-IbAdForest {
+    [CmdletBinding()]
+    param (
+        
+    );
+
+    
+    BEGIN {
+        $result = $null;
+        "Running 'Get-IbAdForest'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        try
+        {
+            $result = Get-ADForest;
+        }
+        catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Error while trying to get AD Dorest details.`n`t$_`n`tPowershell could not connect to any AD domain controller.`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+        catch
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Unkown error type. Error while trying to get AD Dorest details.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+        
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdForest'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdForest.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdServer.ps1
+function Get-IbAdServer {
+    [CmdletBinding()]
+    param (
+        # Computer name. You can use wildcard characters here.
+        # Documentation: https://learn.microsoft.com/en-us/windows/win32/adsi/search-filter-syntax#wildcards
+        [Parameter()]
+        [string]
+        $name,
+    
+        # Properties to load from AD. Send empty array for all properties.
+        [Parameter()]
+        [string[]]
+        $properties = @("name"),
+
+        # AD domain name (FQDN)
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $domain,
+
+        # User ADSI queries instead of Powershell
+        [Parameter()]
+        [switch]
+        $useAdsi
+    );
+
+    
+    BEGIN {
+        $result = -2;
+        "Running 'Get-IbAdServer'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        if ($useAdsi)
+        {
+            #region Using ADSI queries
+            "'useAdsi' flag was passed. Will be using ADSI queries instead of Powershell." | Write-IbLogfile | Write-Verbose;
+
+
+            #region Setting ADSI filter
+            if ($name)
+            {
+                "Getting server '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+                $query = "(&(&(objectCategory=computer)(objectClass=computer)(name=$name)(operatingSystem=*server*)))";
+            }
+            else
+            {
+                "Getting servers from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+                $query = "(&(&(objectCategory=computer)(objectClass=computer)(operatingSystem=*server*)))";
+            }
+            #endregion /Setting ADSI filter
+
+
+            if ($domain) { $searchRoot = [adsi]"LDAP://$domain/dc=$($domain.Split(".") -join ",dc=")"; }
+
+
+            [array]$result = Invoke-IbAdAdsiQuery -query $query -searchRoot $searchRoot -properties $properties;
+            #endregion /Using ADSI queries
+        }
+        else
+        {
+            #region Using Powershell cmdlets
+            $params = @{};
+
+
+            #region Setting ADSI filter
+            if ($name)
+            {
+                "Getting server '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+
+                $ldapFilter = "(name=$name)(operatingSystem=*server*)";
+            }
+            else
+            {
+                "Getting servers from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+
+                $ldapFilter = "(operatingSystem=*server*)";
+            }
+            #endregion /Setting ADSI filter
+            
+
+
+            if ($domain) { $params.Server = $domain; }
+
+
+            try
+            {
+                [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
+                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+            }
+            catch
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_common";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Error while trying to get computer objects from AD for '$domain' domain.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+            #endregion /Using Powershell cmdlets
+        }
+        
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdServer'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdServer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdSubnet.ps1
+function Get-IbAdSubnet {
+    [CmdletBinding(DefaultParameterSetName = "ipv4")]
+    param (
+        # Return IPv6 subnets only
+        [Parameter(ParameterSetName = "ipv6")]
+        [switch]
+        $ipv6,
+
+        # Return IPv4 subnets only
+        [Parameter(ParameterSetName = "ipv4")]
+        [switch]
+        $ipv4
+    );
+
+    
+    BEGIN {
+        $result = $null;
+        "Running 'Get-IbAdSubnet'." | Write-IbLogfile | Write-Verbose;
+
+        $privateIpv4Ranges = "(^127\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)";
+        $privateIpv6Ranges = "^f[cd][0-9a-fA-F]{2}:"; # fc00::/7
+        $localIpv6Ranges = "^fe[89abAB][0-9a-fA-F]:"; # fe80::/10
+    }
+
+    
+    PROCESS {
+        "Getting AD replication subnets." | Write-IbLogfile | Write-Verbose;
+
+        try
+        {
+            [array]$result = Get-ADReplicationSubnet -Filter "*" -ErrorAction Stop;
+        }
+        catch
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Error while trying to get AD replication subnets.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+
+
+        if ($ipv4)
+        {
+            "'ipv4' flag passed. Returning IPv4 subnets only." | Write-IbLogfile | Write-Verbose;
+            [array]$result = $result | ?{$_.name -match $privateIpv4Ranges};
+        }
+
+
+        if ($ipv6)
+        {
+            "'ipv6' flag passed. Returning IPv6 subnets only." | Write-IbLogfile | Write-Verbose;
+            [array]$result = $result | ?{$_.name -match $privateIpv6Ranges -or $_.name -match $localIpv6Ranges};
+        }
+
+
+        "$($result.count) subnets found." | Write-IbLogfile | Write-Verbose;
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdSubnet'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdSubnet.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdUser.ps1
+function Get-IbAdUser {
+    [CmdletBinding(DefaultParameterSetName = "EnabledAndDisabled")]
+    param (
+        # Properties to load from AD. Send empty array for all properties.
+        [Parameter()]
+        [string[]]
+        $properties = @("name"),
+
+        # Search for disabled users only
+        [Parameter(ParameterSetName = "DisabledOnly")]
+        [switch]
+        $disabledOnly,
+
+        # Search for enabled users only
+        [Parameter(ParameterSetName = "EnabledOnly")]
+        [switch]
+        $enabledOnly,
+
+        # Exclude accounts with names finishing with 'SvcAccount'
+        [Parameter()]
+        [switch]
+        $excludeServiceAccounts,
+
+        # DC to connect to
+        [Parameter(ValueFromPipeline)]
+        [string]
+        $server
+    );
+
+    
+    BEGIN {
+        $result = -2;
+        "Running 'Get-IbAdUser'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $params = [hashtable]@{
+            filter = @();
+        };
+
+
+        #region Processing 'excludeServiceAccounts' parameter
+        if ($excludeServiceAccounts)
+        {
+            $params.filter += "Name -notlike '*SvcAccount'";
+        }
+        #endregion /Processing 'excludeServiceAccounts' parameter
+
+
+        #region Processing 'disabledOnly' flag
+        if ($disabledOnly)
+        {
+            "'disabledOnly' flag was passed. Setting additional ADSI filter." | Write-IbLogfile | Write-Verbose;
+            $params.filter += "Enabled -eq 'False'";
+        }
+        #endregion /Processing 'disabledOnly' flag
+
+
+        #region Processing 'enabledOnly' flag
+        if ($enabledOnly)
+        {
+            "'enabledOnly' flag was passed. Setting additional ADSI filter." | Write-IbLogfile | Write-Verbose;
+            $params.filter += "Enabled -eq 'True'";
+        }
+        #endregion /Processing 'enabledOnly' flag
+
+
+        #region Process 'server'
+        if ($server)
+        {
+            "'server' parameter specified. Using '$server' as a source for users." | Write-IbLogfile | Write-Verbose;
+            $params.server = $server;
+        }
+        #endregion Process 'server'
+
+
+        try
+        {
+            if ($params.filter.count -eq 0)
+            {
+                $params.filter = "*";
+            }
+            else
+            {
+                $params.filter = $($params.filter | ?{$_ -ne "*"}) -join " -and ";
+            }
+            "Using filter: '$($params.filter)'." | Write-IbLogfile | Write-Verbose;
+            [array]$result = Get-ADUser @params -Properties $properties -ErrorAction Stop;
+
+            "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+        }
+        catch
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Error while getting users from AD ('$server' domain controller).`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+        }
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdUser'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdUser.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdWorkstation.ps1
+function Get-IbAdWorkstation {
+    [CmdletBinding()]
+    param (
+        # Computer name. You can use wildcard characters here.
+        # Documentation: https://learn.microsoft.com/en-us/windows/win32/adsi/search-filter-syntax#wildcards
+        [Parameter()]
+        [string]
+        $name,
+    
+        # Properties to load from AD. Send empty array for all properties.
+        [Parameter()]
+        [string[]]
+        $properties = @("name"),
+
+        # AD domain name (FQDN)
+        [Parameter()][ValidateNotNullOrEmpty()][string]$domain,
+
+        # User ADSI queries instead of Powershell
+        [Parameter()]
+        [switch]
+        $useAdsi
+    );
+
+    
+    BEGIN {
+        $result = -2;
+        "Running 'Get-IbAdWorkstation'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        if ($useAdsi)
+        {
+            #region Using ADSI queries
+            "'useAdsi' flag was passed. Will be using ADSI queries instead of Powershell." | Write-IbLogfile | Write-Verbose;
+
+            #region Setting ADSI filter
+            if ($name)
+            {
+                "Getting workstation '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+                $query = "(&(&(objectCategory=computer)(objectClass=computer)(name=$name)(!operatingSystem=*server*)))";
+            }
+            else
+            {
+                "Getting workstations from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+                $query = "(&(&(objectCategory=computer)(objectClass=computer)(!operatingSystem=*server*)))";
+            }
+            #endregion /Setting ADSI filter
+
+
+            if ($domain)
+            {
+                $searchRoot = [adsi]"LDAP://$domain/dc=$($domain.Split(".") -join ",dc=")";
+            }
+
+
+            [array]$result = Invoke-IbAdAdsiQuery -query $query -searchRoot $searchRoot -properties $properties;
+            #endregion /Using ADSI queries
+        }
+        else
+        {
+            #region Using Powershell cmdlets
+            $params = @{};
+
+
+            #region Setting ADSI filter
+            if ($name)
+            {
+                "Getting workstation '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+                $ldapFilter = "(name=$name)(!operatingSystem=*server*)";
+            }
+            else
+            {
+                "Getting workstations from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+                $ldapFilter = "(!operatingSystem=*server*)";
+            }
+            #endregion /Setting ADSI filter
+
+
+            if ($domain) { $params.Server = $domain; }
+            
+
+            try
+            {
+                [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
+                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+            }
+            catch
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "ad_common";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Error while trying to get computer objects from AD for '$domain' domain.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            }
+            #endregion /Using Powershell cmdlets
+        }
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Get-IbAdWorkstation'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdWorkstation.ps1
+
+
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_device_count.ps1
 function infoblox_dhcp_device_count {
     <#
@@ -1241,857 +2441,6 @@ function infoblox_gen_vendor {
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_vendor.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdDomainController.ps1
-function Get-IbAdDomainController {
-    [CmdletBinding()]
-    param (
-        # Domain name
-        [Parameter(Mandatory)]
-        [string]
-        $domainName,
-
-        # Filter by Global Catalog role
-        [Parameter()]
-        [switch]
-        $globalCatalog
-    );
-
-    
-    BEGIN {
-        $result = -2;
-        "Running 'Get-IbAdDomainController'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $params = @{};
-
-        #region Processing 'domainName' parameter flag was passed
-        if ($domainName)
-        {
-            "Discovering AD domain controllers for the '$domainName' AD domain." | Write-IbLogfile | Write-Verbose;
-            $params.Server = $domainName;
-        }
-        else
-        {
-            "Discovering AD domain controllers for the current AD domain." | Write-IbLogfile | Write-Verbose;
-            $params = @{};
-        }
-        #endregion /Processing 'domainName' parameter flag was passed
-
-
-        #region 'globalCatalog' flag was passed
-        if ($globalCatalog) {
-            "'globalCatalog' flag was passed." | Write-IbLogfile | Write-Verbose;
-            $params.Service = "GlobalCatalog";
-        }
-        #endregion /'globalCatalog' flag was passed
-
-
-        #region Sending request
-        try
-        {
-            [array]$result = Get-ADDomainController @params -Filter "*" -ErrorAction Stop;
-            "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
-        }
-        catch
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_common";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Error while trying to discover AD domain controller for '$domain' domain.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-        #endregion /Sending request
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdDomainController'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdDomainController.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdForest.ps1
-function Get-IbAdForest {
-    [CmdletBinding()]
-    param (
-        
-    );
-
-    
-    BEGIN {
-        $result = $null;
-        "Running 'Get-IbAdForest'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        try
-        {
-            $result = Get-ADForest;
-        }
-        catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_common";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Error while trying to get AD Dorest details.`n`t$_`n`tPowershell could not connect to any AD domain controller.`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-        catch
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_common";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Unkown error type. Error while trying to get AD Dorest details.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-        
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdForest'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdForest.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdServer.ps1
-function Get-IbAdServer {
-    [CmdletBinding()]
-    param (
-        # Computer name. You can use wildcard characters here.
-        # Documentation: https://learn.microsoft.com/en-us/windows/win32/adsi/search-filter-syntax#wildcards
-        [Parameter()]
-        [string]
-        $name,
-    
-        # Properties to load from AD. Send empty array for all properties.
-        [Parameter()]
-        [string[]]
-        $properties = @("name"),
-
-        # AD domain name (FQDN)
-        [Parameter()]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $domain,
-
-        # User ADSI queries instead of Powershell
-        [Parameter()]
-        [switch]
-        $useAdsi
-    );
-
-    
-    BEGIN {
-        $result = -2;
-        "Running 'Get-IbAdServer'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        if ($useAdsi)
-        {
-            #region Using ADSI queries
-            "'useAdsi' flag was passed. Will be using ADSI queries instead of Powershell." | Write-IbLogfile | Write-Verbose;
-
-
-            #region Setting ADSI filter
-            if ($name)
-            {
-                "Getting server '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $query = "(&(&(objectCategory=computer)(objectClass=computer)(name=$name)(operatingSystem=*server*)))";
-            }
-            else
-            {
-                "Getting servers from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $query = "(&(&(objectCategory=computer)(objectClass=computer)(operatingSystem=*server*)))";
-            }
-            #endregion /Setting ADSI filter
-
-
-            if ($domain) { $searchRoot = [adsi]"LDAP://$domain/dc=$($domain.Split(".") -join ",dc=")"; }
-
-
-            [array]$result = Invoke-IbAdAdsiQuery -query $query -searchRoot $searchRoot -properties $properties;
-            #endregion /Using ADSI queries
-        }
-        else
-        {
-            #region Using Powershell cmdlets
-            $params = @{};
-
-
-            #region Setting ADSI filter
-            if ($name)
-            {
-                "Getting server '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-
-                $ldapFilter = "(name=$name)(operatingSystem=*server*)";
-            }
-            else
-            {
-                "Getting servers from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-
-                $ldapFilter = "(operatingSystem=*server*)";
-            }
-            #endregion /Setting ADSI filter
-            
-
-
-            if ($domain) { $params.Server = $domain; }
-
-
-            try
-            {
-                [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
-                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
-            }
-            catch
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_common";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                "Error while trying to get computer objects from AD for '$domain' domain.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-            #endregion /Using Powershell cmdlets
-        }
-        
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdServer'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdServer.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdSubnet.ps1
-function Get-IbAdSubnet {
-    [CmdletBinding(DefaultParameterSetName = "ipv4")]
-    param (
-        # Return IPv6 subnets only
-        [Parameter(ParameterSetName = "ipv6")]
-        [switch]
-        $ipv6,
-
-        # Return IPv4 subnets only
-        [Parameter(ParameterSetName = "ipv4")]
-        [switch]
-        $ipv4
-    );
-
-    
-    BEGIN {
-        $result = $null;
-        "Running 'Get-IbAdSubnet'." | Write-IbLogfile | Write-Verbose;
-
-        $privateIpv4Ranges = "(^127\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)";
-        $privateIpv6Ranges = "^f[cd][0-9a-fA-F]{2}:"; # fc00::/7
-        $localIpv6Ranges = "^fe[89abAB][0-9a-fA-F]:"; # fe80::/10
-    }
-
-    
-    PROCESS {
-        "Getting AD replication subnets." | Write-IbLogfile | Write-Verbose;
-
-        try
-        {
-            [array]$result = Get-ADReplicationSubnet -Filter "*" -ErrorAction Stop;
-        }
-        catch
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_common";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Error while trying to get AD replication subnets.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-
-
-        if ($ipv4)
-        {
-            "'ipv4' flag passed. Returning IPv4 subnets only." | Write-IbLogfile | Write-Verbose;
-            [array]$result = $result | ?{$_.name -match $privateIpv4Ranges};
-        }
-
-
-        if ($ipv6)
-        {
-            "'ipv6' flag passed. Returning IPv6 subnets only." | Write-IbLogfile | Write-Verbose;
-            [array]$result = $result | ?{$_.name -match $privateIpv6Ranges -or $_.name -match $localIpv6Ranges};
-        }
-
-
-        "$($result.count) subnets found." | Write-IbLogfile | Write-Verbose;
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdSubnet'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdSubnet.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdUser.ps1
-function Get-IbAdUser {
-    [CmdletBinding(DefaultParameterSetName = "EnabledAndDisabled")]
-    param (
-        # Properties to load from AD. Send empty array for all properties.
-        [Parameter()]
-        [string[]]
-        $properties = @("name"),
-
-        # Search for disabled users only
-        [Parameter(ParameterSetName = "DisabledOnly")]
-        [switch]
-        $disabledOnly,
-
-        # Search for enabled users only
-        [Parameter(ParameterSetName = "EnabledOnly")]
-        [switch]
-        $enabledOnly,
-
-        # Exclude accounts with names finishing with 'SvcAccount'
-        [Parameter()]
-        [switch]
-        $excludeServiceAccounts,
-
-        # DC to connect to
-        [Parameter(ValueFromPipeline)]
-        [string]
-        $server
-    );
-
-    
-    BEGIN {
-        $result = -2;
-        "Running 'Get-IbAdUser'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $params = [hashtable]@{
-            filter = @();
-        };
-
-
-        #region Processing 'excludeServiceAccounts' parameter
-        if ($excludeServiceAccounts)
-        {
-            $params.filter += "Name -notlike '*SvcAccount'";
-        }
-        #endregion /Processing 'excludeServiceAccounts' parameter
-
-
-        #region Processing 'disabledOnly' flag
-        if ($disabledOnly)
-        {
-            "'disabledOnly' flag was passed. Setting additional ADSI filter." | Write-IbLogfile | Write-Verbose;
-            $params.filter += "Enabled -eq 'False'";
-        }
-        #endregion /Processing 'disabledOnly' flag
-
-
-        #region Processing 'enabledOnly' flag
-        if ($enabledOnly)
-        {
-            "'enabledOnly' flag was passed. Setting additional ADSI filter." | Write-IbLogfile | Write-Verbose;
-            $params.filter += "Enabled -eq 'True'";
-        }
-        #endregion /Processing 'enabledOnly' flag
-
-
-        #region Process 'server'
-        if ($server)
-        {
-            "'server' parameter specified. Using '$server' as a source for users." | Write-IbLogfile | Write-Verbose;
-            $params.server = $server;
-        }
-        #endregion Process 'server'
-
-
-        try
-        {
-            if ($params.filter.count -eq 0)
-            {
-                $params.filter = "*";
-            }
-            else
-            {
-                $params.filter = $($params.filter | ?{$_ -ne "*"}) -join " -and ";
-            }
-            "Using filter: '$($params.filter)'." | Write-IbLogfile | Write-Verbose;
-            [array]$result = Get-ADUser @params -Properties $properties -ErrorAction Stop;
-
-            "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
-        }
-        catch
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_common";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Error while getting users from AD ('$server' domain controller).`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdUser'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdUser.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdWorkstation.ps1
-function Get-IbAdWorkstation {
-    [CmdletBinding()]
-    param (
-        # Computer name. You can use wildcard characters here.
-        # Documentation: https://learn.microsoft.com/en-us/windows/win32/adsi/search-filter-syntax#wildcards
-        [Parameter()]
-        [string]
-        $name,
-    
-        # Properties to load from AD. Send empty array for all properties.
-        [Parameter()]
-        [string[]]
-        $properties = @("name"),
-
-        # AD domain name (FQDN)
-        [Parameter()][ValidateNotNullOrEmpty()][string]$domain,
-
-        # User ADSI queries instead of Powershell
-        [Parameter()]
-        [switch]
-        $useAdsi
-    );
-
-    
-    BEGIN {
-        $result = -2;
-        "Running 'Get-IbAdWorkstation'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        if ($useAdsi)
-        {
-            #region Using ADSI queries
-            "'useAdsi' flag was passed. Will be using ADSI queries instead of Powershell." | Write-IbLogfile | Write-Verbose;
-
-            #region Setting ADSI filter
-            if ($name)
-            {
-                "Getting workstation '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $query = "(&(&(objectCategory=computer)(objectClass=computer)(name=$name)(!operatingSystem=*server*)))";
-            }
-            else
-            {
-                "Getting workstations from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $query = "(&(&(objectCategory=computer)(objectClass=computer)(!operatingSystem=*server*)))";
-            }
-            #endregion /Setting ADSI filter
-
-
-            if ($domain)
-            {
-                $searchRoot = [adsi]"LDAP://$domain/dc=$($domain.Split(".") -join ",dc=")";
-            }
-
-
-            [array]$result = Invoke-IbAdAdsiQuery -query $query -searchRoot $searchRoot -properties $properties;
-            #endregion /Using ADSI queries
-        }
-        else
-        {
-            #region Using Powershell cmdlets
-            $params = @{};
-
-
-            #region Setting ADSI filter
-            if ($name)
-            {
-                "Getting workstation '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $ldapFilter = "(name=$name)(!operatingSystem=*server*)";
-            }
-            else
-            {
-                "Getting workstations from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $ldapFilter = "(!operatingSystem=*server*)";
-            }
-            #endregion /Setting ADSI filter
-
-
-            if ($domain) { $params.Server = $domain; }
-            
-
-            try
-            {
-                [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
-                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
-            }
-            catch
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_common";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                "Error while trying to get computer objects from AD for '$domain' domain.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-            #endregion /Using Powershell cmdlets
-        }
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdWorkstation'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdWorkstation.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Export-IbCsv.ps1
-function Export-IbCsv {
-    [CmdletBinding()]
-    param (
-        # Array of arrays to export
-        [Parameter(Mandatory, ValueFromPipeline)][array[]]$array,
-
-        # CSV separator
-        [Parameter()][string]$separator = ","
-    );
-    
-    
-    BEGIN {
-        $csvPath = $env:INFOBLOX_SE_CSVPATH;
-    }
-
-    
-    PROCESS {
-        foreach ($item in $array) {
-            $csvString = "";
-            foreach ($subItem in $item) {
-                $csvString += "$subItem$separator";
-            }
-            $csvString = $csvString.TrimEnd($separator);
-
-            Add-Content -Path $csvPath -Value $csvString;
-        }
-    }
-    
-
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Export-IbCsv.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
-function Get-IbCimExceptionCustomErrorMessage {
-    [CmdletBinding()]
-    param (
-        # Value of $_.Exception.MessageId
-        [Parameter()]
-        [Microsoft.Management.Infrastructure.CimException]
-        $exception
-    );
-
-    
-    BEGIN {}
-
-    
-    PROCESS {
-        $defaultText = "Error code: '$($exception.MessageId)'. ";
-        $defaultText += $exception.ErrorData.CimInstanceProperties | ?{$_.name -eq "error_WindowsErrorMessage"} | Select-Object -ExpandProperty Value;
-        $defaultText += "`n`t";
-
-        switch ($exception.MessageId) {
-            "WIN32 4"       { $result = $defaultText + "The issue could be on local computer or remote server. Too many opened files in the system, hence request cannot be completed."; }
-            "WIN32 5"       { $result = $defaultText + "Current user does not have permissions to read from the server."; }
-            "WIN32 1721"    { $result = $defaultText + "Most likely the server or local computer does not have free resources (usually - memory) to process the request."; }
-            "WIN32 1722"    { $result = $defaultText + "Most likely the server is turned off or not accessible through network."; }
-            "WIN32 1723"    { $result = $defaultText + "Most likely the server is experiencing heavy load."; }
-            "DHCP 20070"    { $result = $defaultText + "Powershell module could not connect to any AD controller."; }
-            Default         { $result = $defaultText + "--- No detailed explanation ---"; }
-        }
-
-        return $result;
-    }
-
-    
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/New-IbCsMetricsList.ps1
-function New-IbCsMetricsList {
-    [CmdletBinding()]
-    param (
-        # Process one metric, if specified
-        [Parameter()]
-        [AllowEmptyString()]
-        [string]
-        $customMetricName,
-
-        # Process DNS metrics
-        [Parameter()]
-        [switch]
-        $processDnsMetrics,
-
-        # Process DHCP metrics
-        [Parameter()]
-        [switch]
-        $processDhcpMetrics,
-
-        # Process GEN metrics
-        [Parameter()]
-        [switch]
-        $processGenMetrics
-    );
-
-    
-    BEGIN {
-        "Running 'Get-IbCsMetricsList'." | Write-IbLogfile | Write-Verbose;
-
-        "Building metrics list to process." | Write-IbLogfile | Write-Verbose;
-
-
-        $defaultMetricsToProcess = @(
-            "dhcp_device_count"
-            "dhcp_lease_time"
-            "dhcp_lps"
-            "dhcp_server_count"
-            "dhcp_subnet_count"
-            "dhcp_vendor"
-            "dns_ext_dnssec_used"
-            "dns_ext_forward_zone_count"
-            "dns_ext_ipv6_used"
-            "dns_ext_qps"
-            "dns_ext_record_count"
-            "dns_ext_reverse_zone_count"
-            "dns_ext_server_count"
-            "dns_int_ad_domain_count"
-            "dns_int_caching_forwarders"
-            "dns_int_dnssec_used"
-            "dns_int_forward_zone_count"
-            "dns_int_ipv6_used"
-            "dns_int_qps"
-            "dns_int_record_count"
-            "dns_int_reverse_zone_count"
-            "dns_int_server_count"
-            "dns_int_vendor"
-            "gen_active_ip"
-            "gen_active_user"
-            "gen_site_count"
-            "gen_vendor"
-        );
-    }
-
-    
-    PROCESS {
-        if ($customMetricName)
-        {
-            if ($customMetricName -in $defaultMetricsToProcess)
-            {
-                "Metric '$customMetricName' will be processed only as per 'processOneMetricOnly' parameter." | Write-IbLogfile | Write-Verbose;
-                $metricsToProcess = @($customMetricName);
-            }
-            else
-            {
-                "Value, provided for 'processOneMetricOnly' parameter, is incorrect. Please consult with help section." | Write-IbLogfile -severity Error | Write-Error;
-                "List of supported metrics:`n$defaultMetricsToProcess" | Out-String | Write-IbLogfile -severity Error | Write-Error;
-                $metricsToProcess = @();
-            }
-        }
-        else
-        {
-            $metricsToProcess = @();
-
-
-            if ($processDnsMetrics)
-            {
-                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dns_"};
-                "DNS metrics are added to the list." | Write-IbLogfile | Write-Verbose;
-            }
-            if ($processDhcpMetrics)
-            {
-                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dhcp_"};
-                "DHCP metrics are added to the list." | Write-IbLogfile | Write-Verbose;
-            }
-            if ($processGenMetrics)
-            {
-                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^gen_"};
-                "GEN metrics are added to the list." | Write-IbLogfile | Write-Verbose;
-            }
-        }
-
-
-        return $metricsToProcess;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbCsMetricsList'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/New-IbCsMetricsList.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbCsvfilePath.ps1
-function Set-IbCsvfilePath {
-    [CmdletBinding()]
-    param (
-        # Csv file name
-        [Parameter()][string]$fileName
-    );
-
-    
-    $csvPath = "./@output/";
-
-
-    #region Create path to the log file if it doesn't exist
-    if (-not $(Test-Path -Path "$csvPath/$fileName")) {
-        New-Item -Path "$csvPath/$fileName" -Force | Out-Null;
-    }
-    #endregion /Create path to the log file if it doesn't exist
-
-
-    Write-Verbose "Setting environment variable 'INFOBLOX_SE_CSVPATH = $csvPath/$fileName' to store CSV file path.";
-    Set-Item -Path "env:INFOBLOX_SE_CSVPATH" -Value "$csvPath/$fileName";
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbCsvfilePath.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbLogfilePath.ps1
-function Set-IbLogfilePath {
-    [CmdletBinding()]
-    param (
-        [Parameter()][string]$fileName,
-
-        [Parameter()][switch]$powershellTranscript
-    );
-
-
-    $logPath = "./@logs/"
-
-    if (-not $fileName) {
-        $fileName = "{0}.log" -f $(Get-Date -Format "yyyy-MM-dd_HH-mm-ss");
-    }
-
-
-    if (-not $powershellTranscript)
-    {
-        #region Create path to the log file if it doesn't exist
-        if (-not $(Test-Path -Path "$logPath/$fileName")) {
-            New-Item -Path "$logPath/$fileName" -Force | Out-Null;
-        }
-        #endregion /Create path to the log file if it doesn't exist
-    
-        Write-Verbose "Setting environment variable 'INFOBLOX_SE_LOGPATH = $logPath/$fileName' to store log file path.";
-        Set-Item -Path "env:INFOBLOX_SE_LOGPATH" -Value "$logPath/$fileName";
-    
-        Write-Verbose "Writing init record into log file.";
-        Write-IbLogfile "Log file initialized." -noOutput;
-    }
-    else
-    {
-        Write-Verbose "Setting environment variable 'INFOBLOX_PWSH_TRANSCRIPT_PATH = $logPath/$fileName' to store Powershell transcript path.";
-        Set-Item -Path "env:INFOBLOX_PWSH_TRANSCRIPT_PATH" -Value "$logPath/$fileName";
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbLogfilePath.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Write-IbLogfile.ps1
-function Write-IbLogfile {
-    [CmdletBinding()]
-    param (
-        # Message passed to the log
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [ValidateNotNullorEmpty()]
-        [string]
-        $text,
-
-        # Message severity passed to the log
-        [Parameter()]
-        [ValidateNotNullorEmpty()]
-        [ValidateSet("Info", "Error", "Warning")]
-        [string]
-        $severity = "Info",
-
-        # Do not return $text as output
-        [Parameter()][switch]$noOutput
-    );
-
-
-    BEGIN {
-        $logPath = $env:INFOBLOX_SE_LOGPATH;
-    }
- 
-
-    PROCESS {
-        $datetimeStamp = Get-Date -Format "yyyy-MM-dd HH-mm-ss->fff";
-        
-        #region Format spaces
-        if ($severity.Length -le 7) {
-            $severityStamp = "[$severity]";
-            for ($i = $severity.Length; $i -le 7; $i++) {
-                $severityStamp = $severityStamp + " ";
-            }
-        }
-        #endregion /Format spaces
-
-
-        try {
-            Add-Content -Path $logPath -Encoding UTF8 -Value $($datetimeStamp + "  $severityStamp " + $text) -ErrorAction Stop;
-        }
-        catch {
-            Write-Error "Error while trying to write the log file '$logPath'.";
-            throw $_;
-        }
-
-
-        if (-not $noOutput) { return $text; }
-    }
- 
-
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Write-IbLogfile.ps1
-
-
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsForwarderConfiguration.ps1
 function Get-IbAdDnsForwarderConfiguration {
     [CmdletBinding()]
@@ -2696,360 +3045,11 @@ function Select-IbAdDnsServer {
     }
 }
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Select-IbAdDnsServer.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpScope.ps1
-function Get-IbAdDhcpScope {
-    [CmdletBinding(DefaultParameterSetName = "All")]
-    param (
-        # DHCP server FQDN
-        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [string]
-        $dhcpServer,
-        
-        # Get only 'ipv4' scopes
-        [Parameter(ParameterSetName = "ipv4")]
-        [switch]
-        $ipv4,
-
-        # Get only 'ipv6' scopes
-        [Parameter(ParameterSetName = "ipv6")]
-        [switch]
-        $ipv6
-    );
-
-    
-    BEGIN {
-        "Running 'Get-IbAdDhcpScope'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $result = $null;
-        $ipv4Scopes = $null;
-        $ipv6Scopes = $null;
-
-
-        #region Get all scopes
-        try
-        {
-            "Getting scopes from the DHCP server '$dhcpServer'." | Write-IbLogfile | Write-Verbose;
-            [array]$ipv4Scopes = Get-DhcpServerv4Scope -ComputerName $dhcpServer -ErrorAction Stop;
-            [array]$ipv6Scopes = Get-DhcpServerv6Scope -ComputerName $dhcpServer -ErrorAction Stop;
-        }
-        catch [Microsoft.Management.Infrastructure.CimException]
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_dhcp";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            $explanation = Get-IbCimExceptionCustomErrorMessage -exception $_.Exception;
-            "Error while trying to get scopes from DHCP server '$dhcpServer'.`n`t$_`n`t$explanation`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-        catch
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_dhcp";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Unkown error type. Error while trying to get scopes from DHCP server '$dhcpServer'.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-        #endregion /Get all scopes
-
-
-        if ($ipv4)
-        {
-            "'ipv4' flag passed. Returning IPv4 scopes only." | Write-IbLogfile | Write-Verbose;
-            [System.Collections.ArrayList]$result = $ipv4Scopes;
-        }
-        elseif ($ipv6)
-        {
-            "'ipv6' flag passed. Returning IPv6 scopes only." | Write-IbLogfile | Write-Verbose;
-            [System.Collections.ArrayList]$result = $ipv6Scopes;
-        }
-        else
-        {
-            [System.Collections.ArrayList]$result = $ipv4Scopes + $ipv6Scopes;
-        }
-
-
-        if ($result)
-        {
-            $result | %{ $_ | Add-Member -MemberType NoteProperty -Name "DhcpServer" -Value $dhcpServer };
-        }
-        else
-        {
-            $result = @();
-        }
-
-        
-        "$($result.Count) scopes found." | Write-IbLogfile | Write-Verbose;
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdDhcpScope'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpScope.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServer.ps1
-function Get-IbAdDhcpServer {
-    [CmdletBinding()]
-    param (
-        # Do not verify if DHCP is running
-        [Parameter()]
-        [switch]
-        $doNotTestService
-    );
-
-    
-    BEGIN {
-        "Running 'Get-IbAdDhcpServer'." | Write-IbLogfile | Write-Verbose;
-
-        $result = $null;
-    }
-
-    
-    PROCESS {
-        "Getting list of authorized DHCP servers from AD." | Write-IbLogfile | Write-Verbose;
-
-
-        #region Getting DHCP servers using Powershell
-        try
-        {
-            [array]$result = Get-DhcpServerInDC -ErrorAction Stop | Select-Object -ExpandProperty DnsName;
-        }
-        catch [Microsoft.Management.Infrastructure.CimException]
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_dhcp";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Error while trying to get the list of DHCP servers from AD`n`t$_`n`t$(Get-IbCimExceptionCustomErrorMessage -exception $_.Exception)`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-        catch
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_dhcp";
-                message = $_.Exception.Message;
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Unkown error type. Error while trying to get the list of DHCP servers from AD.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-        }
-        #endregion /Getting DHCP servers using Powershell
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdDhcpServer'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServer.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLease.ps1
-function Get-IbAdDhcpServerLease {
-    [CmdletBinding(DefaultParameterSetName = "All")]
-    param (
-        # DHCP server
-        [Parameter(Mandatory)]
-        [string]
-        $dhcpServer,
-
-        # Scope ID
-        [Parameter(Mandatory)]
-        [string]
-        $scopeId,
-
-        # IPv4
-        [Parameter(ParameterSetName = "ipv4")]
-        [switch]
-        $ipv4,
-
-        # IPv6
-        [Parameter(ParameterSetName = "ipv6")]
-        [switch]
-        $ipv6
-    );
-
-    
-    BEGIN {
-        "Running 'Get-IbAdDhcpServerLease'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        #region IPv4 leases
-        if ($ipv4)
-        {
-            try
-            {
-                $result = Get-DhcpServerv4Lease -ComputerName $dhcpServer -scopeid $scopeId;
-            }
-            catch [Microsoft.Management.Infrastructure.CimException]
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_dhcp";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                $explanation = Get-IbCimExceptionCustomErrorMessage -exception $_.Exception;
-                "Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope.`n`t$_`n`t$explanation`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-            catch
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_dhcp";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                "Unkown error type. Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-        }
-        #endregion /IPv4 leases
-
-
-        #region IPv6 leases
-        if ($ipv6)
-        {
-            try
-            {
-                $result = Get-DhcpServerv6Lease -ComputerName $dhcpServer -scopeid $scopeId;
-            }
-            catch [Microsoft.Management.Infrastructure.CimException]
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_dhcp";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                $explanation = Get-IbCimExceptionCustomErrorMessage -exception $_.Exception;
-                "Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope.`n`t$_`n`t$explanation`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-            catch
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_dhcp";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                "Unkown error type. Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-        }
-        #endregion /IPv6 leases
-        
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdDhcpServerLease'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLease.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLps.ps1
-function Get-IbAdDhcpServerLps {
-    [CmdletBinding()]
-    param (
-        # DHCP server
-        [Parameter(ValueFromPipeline, Mandatory)]
-        [string]
-        $dhcpServer
-    );
-
-    
-    BEGIN {
-        $result = $null;
-        "Running 'Get-IbAdDhcpServerLps'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        "Getting information from '$dhcpServer' DHCP server." | Write-IbLogfile | Write-Verbose;
-
-        #region Getting DHCP server statistics
-            #region Getting IPv4 statistics
-            try
-            {
-                "Getting DHCP server IPv4 statistics." | Write-IbLogfile | Write-Verbose;
-                $ipv4Stats = Get-DhcpServerv4Statistics -ComputerName $dhcpServer -ErrorAction Stop;
-            }
-            catch [Microsoft.Management.Infrastructure.CimException]
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_dhcp";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                "Error while trying to get DHCP server IPv4 statistics from the server '$dhcpServer'.`n`t$_`n`t$(Get-IbCimExceptionCustomErrorMessage -exception $_.Exception)`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-            catch
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_dhcp";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                "Unkown error type. Error while trying to get DHCP server IPv4 statistics from the server '$dhcpServer'.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-            #endregion /Getting IPv4 statistics
-
-
-            #region Getting IPv6 statistics
-            try
-            {
-                "Getting DHCP server IPv6 statistics." | Write-IbLogfile | Write-Verbose;
-                $ipv6Stats = Get-DhcpServerv6Statistics -ComputerName $dhcpServer -ErrorAction Stop;
-            }
-            catch [Microsoft.Management.Infrastructure.CimException]
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_dhcp";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                "Error while trying to get DHCP server IPv6 statistics from the server '$dhcpServer'.`n`t$_`n`t$(Get-IbCimExceptionCustomErrorMessage -exception $_.Exception)`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-            catch
-            {
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "ad_dhcp";
-                    message = $_.Exception.Message;
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-                "Unkown error type. Error while trying to get DHCP server IPv6 statistics from the server '$dhcpServer'.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
-            }
-            #endregion /Getting IPv6 statistics
-            #endregion /Getting DHCP server statistics
-
-            $uptime = ($(Get-Date) - $ipv4Stats.ServerStartTime).TotalSeconds;
-            [float]$ipv4Lps = [Math]::Round($ipv4Stats.Acks / $uptime, 2);
-            [float]$ipv6Lps = [Math]::Round($ipv6Stats.Confirms / $uptime, 2);
-
-            return $($ipv4Lps + $ipv6Lps);
-    }
-
-    
-    END {
-        "Finished execution 'Get-IbAdDhcpServerLps'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLps.ps1
 #endregion /./_helpers/public/
 
 
 #region ./_templates/common--main--body.ps1
-$version = "1.0.8.0.tags-v1.0.8.520953b";
+$version = "1.0.8.0.tags-v1.0.8.9161f95";
 
 
 $dateTime = Get-Date -Format "yyyy-MM-dd_HH-mm-ss";
