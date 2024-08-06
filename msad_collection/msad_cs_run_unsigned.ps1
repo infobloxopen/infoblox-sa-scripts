@@ -1,7 +1,7 @@
 <#
 .NOTES
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.
-Version: 1.0.8.0.tags-v1.0.8.823af3a
+Version: 1.0.8.0.tags-v1.0.8.520953b
 
 
 PLEASE NOTE - To enable script execution on the server run:
@@ -3049,7 +3049,7 @@ function Get-IbAdDhcpServerLps {
 
 
 #region ./_templates/common--main--body.ps1
-$version = "1.0.8.0.tags-v1.0.8.823af3a";
+$version = "1.0.8.0.tags-v1.0.8.520953b";
 
 
 $dateTime = Get-Date -Format "yyyy-MM-dd_HH-mm-ss";
