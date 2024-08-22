@@ -1,7 +1,7 @@
 <#
 .NOTES
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.
-Version: 1.0.8.0.tags-v1.0.8.9161f95
+Version: 1.0.8.0.tags-v1.0.8.47731f2
 
 
 PLEASE NOTE - To enable script execution on the server run:
@@ -196,16 +196,123 @@ param (
 #endregion /./_templates/common--main--header.ps1
 
 
-#region ./_helpers/public/
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Export-IbCsv.ps1
+#region ./src/helpers/public/
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@classes/_IbServer.ps1
+class IbServer {
+    #region Properties
+    [ValidateNotNullOrEmpty()]
+    [string]
+    $Name
+
+    [Nullable[bool]]
+    $Tcp135Avail
+    #endregion /Properties
+
+
+    #region Constructors
+    IbServer()
+    {
+        $this.Tcp135Avail = $null;
+    }
+
+
+    IbServer(
+        [string]$name
+    )
+    {
+        $this.Name = $name;
+        $this.Tcp135Avail = $null;
+    }
+    #endregion /Constructors
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@classes/_IbServer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@classes/IbDhcpServer.ps1
+class IbDhcpServer : IbServer {
+    #region Properties
+    [string]$Type = "Dhcp"
+
+    [Nullable[bool]]
+    $DhcpAvail
+    #endregion /Properties
+
+    
+    #region Constructors
+    IbDhcpServer() {}
+
+
+    IbDhcpServer(
+        [string]$name
+    )
+    {
+        $this.Name = $name;
+        $this.DhcpAvail = $null;
+    }
+
+
+    IbDhcpServer(
+        [string]$name,
+        [bool]$dhcpAvail
+    )
+    {
+        $this.Name = $name;
+        $this.DhcpAvail = $dhcpAvail;
+    }
+    #endregion /Constructors
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@classes/IbDhcpServer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@classes/IbDnsServer.ps1
+class IbDnsServer : IbServer {
+    #region Properties
+    [string]$Type = "Dns"
+
+    [Nullable[bool]]
+    $DnsAvail
+    #endregion /Properties
+
+    
+    #region Constructors
+    IbDnsServer() {}
+
+
+    IbDnsServer(
+        [string]$name
+    )
+    {
+        $this.Name = $name;
+        $this.DnsAvail = $null;
+    }
+
+
+    IbDnsServer(
+        [string]$name,
+        [bool]$dnsAvail
+    )
+    {
+        $this.Name = $name;
+        $this.DnsAvail = $dnsAvail;
+    }
+    #endregion /Constructors
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@classes/IbDnsServer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Export-IbCsv.ps1
 function Export-IbCsv {
     [CmdletBinding()]
     param (
         # Array of arrays to export
-        [Parameter(Mandatory, ValueFromPipeline)][array[]]$array,
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [array[]]
+        $array,
 
         # CSV separator
-        [Parameter()][string]$separator = ","
+        [Parameter()]
+        [string]
+        $separator = ","
     );
     
     
@@ -215,9 +322,11 @@ function Export-IbCsv {
 
     
     PROCESS {
-        foreach ($item in $array) {
+        foreach ($item in $array)
+        {
             $csvString = "";
-            foreach ($subItem in $item) {
+            foreach ($subItem in $item)
+            {
                 $csvString += "$subItem$separator";
             }
             $csvString = $csvString.TrimEnd($separator);
@@ -229,15 +338,15 @@ function Export-IbCsv {
 
     END {}
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Export-IbCsv.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Export-IbCsv.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
 function Get-IbCimExceptionCustomErrorMessage {
     [CmdletBinding()]
     param (
         # Value of $_.Exception.MessageId
-        [Parameter()]
+        [Parameter(Mandatory)]
         [Microsoft.Management.Infrastructure.CimException]
         $exception
     );
@@ -247,13 +356,21 @@ function Get-IbCimExceptionCustomErrorMessage {
 
     
     PROCESS {
-        $defaultText = "Error code: '$($exception.MessageId)'. ";
+        #region Reset variables
+        $defaultText,
+        $result = $null;
+        #endregion /Reset variables
+
+        
+        $defaultText = "[Microsoft.Management.Infrastructure.CimException]`n`t"
+        $defaultText += "Error code: '$($exception.MessageId)'. ";
         $defaultText += $exception.ErrorData.CimInstanceProperties | ?{$_.name -eq "error_WindowsErrorMessage"} | Select-Object -ExpandProperty Value;
         $defaultText += "`n`t";
 
-        switch ($exception.MessageId) {
+        switch ($exception.MessageId)
+        {
             "WIN32 4"       { $result = $defaultText + "The issue could be on local computer or remote server. Too many opened files in the system, hence request cannot be completed."; }
-            "WIN32 5"       { $result = $defaultText + "Current user does not have permissions to read from the server."; }
+            "WIN32 5"       { $result = $defaultText + "Current user does not have permissions to read from the server. This error also may appear if the local computer is unable to reach remote server on port TCP 135."; }
             "WIN32 1721"    { $result = $defaultText + "Most likely the server or local computer does not have free resources (usually - memory) to process the request."; }
             "WIN32 1722"    { $result = $defaultText + "Most likely the server is turned off or not accessible through network."; }
             "WIN32 1723"    { $result = $defaultText + "Most likely the server is experiencing heavy load."; }
@@ -267,16 +384,152 @@ function Get-IbCimExceptionCustomErrorMessage {
     
     END {}
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/New-IbCsMetricsList.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbServiceCommandExceptionCustomErrorMessage.ps1
+function Get-IbServiceCommandExceptionCustomErrorMessage {
+    [CmdletBinding()]
+    param (
+        # Value of $_.Exception.MessageId
+        [Parameter(Mandatory)]
+        [Microsoft.PowerShell.Commands.ServiceCommandException]
+        $exception
+    );
+
+    
+    BEGIN {}
+
+    
+    PROCESS {
+        $defaultText = "[Microsoft.PowerShell.Commands.ServiceCommandException]`n`t";
+
+        switch ($exception.HResult)
+        {
+            -2146233087     { $result = $defaultText + "The issue could also appear if the remote server is turned off or not reachable through network."; }
+            Default         { $result = $defaultText + "--- No detailed explanation ---"; }
+        }
+
+        
+        return $result;
+    }
+
+    
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbServiceCommandExceptionCustomErrorMessage.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbCsvfilePath.ps1
+function Initialize-IbCsvfilePath {
+    [CmdletBinding()]
+    param (
+        # Csv file name
+        [Parameter(Mandatory)]
+        [string]
+        $fileName
+    );
+
+    
+    $csvPath = "./@output";
+
+
+    #region Create path to the log file if it doesn't exist
+    if (-not $(Test-Path -Path "$csvPath/$fileName"))
+    {
+        New-Item -Path "$csvPath/$fileName" -Force | Out-Null;
+    }
+    #endregion /Create path to the log file if it doesn't exist
+
+
+    Write-Verbose "Setting environment variable 'INFOBLOX_SE_CSVPATH = $csvPath/$fileName' to store CSV file path.";
+    Set-Item -Path "env:INFOBLOX_SE_CSVPATH" -Value "$csvPath/$fileName";
+
+
+    $result = "$csvPath/$fileName";
+
+
+    return $result;
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbCsvfilePath.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbGlobalVariables.ps1
+function Initialize-IbGlobalVariables {
+    [CmdletBinding()]
+    param (
+        
+    );
+
+    
+    "Initializing global variables." | Write-Verbose;
+
+    $global:infoblox_errors = @();
+    $global:infoblox_servers = @();
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbGlobalVariables.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbLogfilePath.ps1
+function Initialize-IbLogfilePath {
+    [CmdletBinding()]
+    param (
+        [Parameter()]
+        [string]
+        $fileName,
+
+        [Parameter()]
+        [switch]
+        $powershellTranscript
+    );
+
+
+    $logPath = "./@logs"
+
+
+    if (-not $fileName)
+    {
+        $fileName = "{0}.log" -f $(Get-Date -Format "yyyy-MM-dd_HH-mm-ss");
+    }
+
+
+    if (-not $powershellTranscript)
+    {
+        #region Create path to the log file if it doesn't exist
+        if (-not $(Test-Path -Path "$logPath/$fileName"))
+        {
+            New-Item -Path "$logPath/$fileName" -Force | Out-Null;
+        }
+        #endregion /Create path to the log file if it doesn't exist
+    
+        Write-Verbose "Setting environment variable 'INFOBLOX_SE_LOGPATH = $logPath/$fileName' to store log file path.";
+        Set-Item -Path "env:INFOBLOX_SE_LOGPATH" -Value "$logPath/$fileName";
+    
+        Write-Verbose "Writing init record into log file.";
+        Write-IbLogfile "Log file initialized." -noOutput;
+    }
+    else
+    {
+        Write-Verbose "Setting environment variable 'INFOBLOX_PWSH_TRANSCRIPT_PATH = $logPath/$fileName' to store Powershell transcript path.";
+        Set-Item -Path "env:INFOBLOX_PWSH_TRANSCRIPT_PATH" -Value "$logPath/$fileName";
+    }
+
+
+    $result = "$logPath/$fileName";
+
+
+    return $result;
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbLogfilePath.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsMetricsList.ps1
 function New-IbCsMetricsList {
     [CmdletBinding()]
     param (
         # Process one metric, if specified
         [Parameter()]
-        [AllowEmptyString()]
+        [ValidateNotNullOrEmpty()]
         [string]
         $customMetricName,
 
@@ -299,9 +552,6 @@ function New-IbCsMetricsList {
     
     BEGIN {
         "Running 'Get-IbCsMetricsList'." | Write-IbLogfile | Write-Verbose;
-
-        "Building metrics list to process." | Write-IbLogfile | Write-Verbose;
-
 
         $defaultMetricsToProcess = @(
             "dhcp_device_count"
@@ -336,12 +586,15 @@ function New-IbCsMetricsList {
 
     
     PROCESS {
+        "Building metrics list to process." | Write-IbLogfile | Write-Verbose;
+
+        
         if ($customMetricName)
         {
             if ($customMetricName -in $defaultMetricsToProcess)
             {
                 "Metric '$customMetricName' will be processed only as per 'processOneMetricOnly' parameter." | Write-IbLogfile | Write-Verbose;
-                $metricsToProcess = @($customMetricName);
+                [array]$metricsToProcess = @($customMetricName);
             }
             else
             {
@@ -370,10 +623,16 @@ function New-IbCsMetricsList {
                 $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^gen_"};
                 "GEN metrics are added to the list." | Write-IbLogfile | Write-Verbose;
             }
+
+
+            if ($metricsToProcess.Count -eq 0)
+            {
+                $metricsToProcess = $defaultMetricsToProcess;
+            }
         }
 
 
-        return $metricsToProcess;
+        Write-Output -NoEnumerate $metricsToProcess;
     }
 
     
@@ -381,75 +640,368 @@ function New-IbCsMetricsList {
         "Finished execution 'Get-IbCsMetricsList'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/New-IbCsMetricsList.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsMetricsList.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbCsvfilePath.ps1
-function Set-IbCsvfilePath {
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbServer.ps1
+function Test-IbServer {
     [CmdletBinding()]
     param (
-        # Csv file name
-        [Parameter()][string]$fileName
+        # Server address
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $serverName,
+
+        # Server type DNS/DHCP
+        [Parameter(Mandatory)]
+        [ValidateSet("dhcp", "dns", "default")]
+        [string]
+        $serverType,
+
+        # Update $global:infoblox_servers variable if checks are implemented in this run
+        [Parameter()]
+        [switch]
+        $skipUpdateEnvironment
     );
 
     
-    $csvPath = "./@output/";
-
-
-    #region Create path to the log file if it doesn't exist
-    if (-not $(Test-Path -Path "$csvPath/$fileName")) {
-        New-Item -Path "$csvPath/$fileName" -Force | Out-Null;
-    }
-    #endregion /Create path to the log file if it doesn't exist
-
-
-    Write-Verbose "Setting environment variable 'INFOBLOX_SE_CSVPATH = $csvPath/$fileName' to store CSV file path.";
-    Set-Item -Path "env:INFOBLOX_SE_CSVPATH" -Value "$csvPath/$fileName";
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbCsvfilePath.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbLogfilePath.ps1
-function Set-IbLogfilePath {
-    [CmdletBinding()]
-    param (
-        [Parameter()][string]$fileName,
-
-        [Parameter()][switch]$powershellTranscript
-    );
-
-
-    $logPath = "./@logs/"
-
-    if (-not $fileName) {
-        $fileName = "{0}.log" -f $(Get-Date -Format "yyyy-MM-dd_HH-mm-ss");
+    BEGIN {
+        "Running 'Test-IbServer'." | Write-IbLogfile | Write-Verbose;
     }
 
+    
+    PROCESS {
+        "Testing if the server '$serverName' (type = '$serverType') is available." | Write-IbLogfile | Write-Verbose;
 
-    if (-not $powershellTranscript)
-    {
-        #region Create path to the log file if it doesn't exist
-        if (-not $(Test-Path -Path "$logPath/$fileName")) {
-            New-Item -Path "$logPath/$fileName" -Force | Out-Null;
+
+        #region Check if the server already exist in the global array
+        switch ($serverType)
+        {
+            "dns"       { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbDnsServer" -and $_.Name -eq $serverName};  }
+            "dhcp"      { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbDhcpServer" -and $_.Name -eq $serverName}; }
+            "default"   { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbServer" -and $_.Name -eq $serverName};     }
         }
-        #endregion /Create path to the log file if it doesn't exist
-    
-        Write-Verbose "Setting environment variable 'INFOBLOX_SE_LOGPATH = $logPath/$fileName' to store log file path.";
-        Set-Item -Path "env:INFOBLOX_SE_LOGPATH" -Value "$logPath/$fileName";
-    
-        Write-Verbose "Writing init record into log file.";
-        Write-IbLogfile "Log file initialized." -noOutput;
+        #region /Check if the server already exist in the global array
+
+
+        #region Set result value if it already exists, otherwise - run tests
+        $checkPerformed = $false;
+
+
+        switch ($serverType)
+        {
+            "dns"
+            {
+                if ($server)
+                {
+                    "Server '$($server.Name)' already checked: 'DnsAvail = $($server.DnsAvail)', 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
+                    $result = $server.DnsAvail -and $server.Tcp135Avail;
+                }
+                else
+                {
+                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
+
+                    $server = [IbDnsServer]::new($serverName);
+                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
+                    if ($server.Tcp135Avail)
+                    {
+                        $server.DnsAvail = Test-IbWindowsService -server $serverName -dnsService;
+                        $result = $server.Tcp135Avail -and $server.DnsAvail;
+                    }
+                    else
+                    {
+                        $result = $false;
+                    }
+
+                    $checkPerformed = $true;
+                }
+            }
+
+
+            "dhcp"
+            {
+                if ($server)
+                {
+                    "Server '$($server.Name)' already checked: 'DhcpAvail = $($server.DhcpAvail)', 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
+                    $result = $server.DhcpAvail -and $server.Tcp135Avail;
+                }
+                else
+                {
+                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
+
+                    $server = [IbDhcpServer]::new($serverName);
+                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
+                    if ($server.Tcp135Avail)
+                    {
+                        $server.DhcpAvail = Test-IbWindowsService -server $serverName -dhcpService;
+                        $result = $server.Tcp135Avail -and $server.DhcpAvail;
+                    }
+                    else
+                    {
+                        $result = $false;
+                    }
+                    $checkPerformed = $true;
+                }
+            }
+
+
+            "default"
+            {
+                if ($server)
+                {
+                    "Server '$($server.Name)' already checked: 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
+                    $result = $server.Tcp135Avail;
+                }
+                else
+                {
+                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
+
+                    $server = [IbServer]::new($serverName);
+                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
+
+                    $result = $server.Tcp135Avail;
+                    $checkPerformed = $true;
+                }
+            }
+        }
+        #endregion /Set result value if it already exists, otherwise - run tests
+
+
+        #region Update $global:infoblox_servers variable
+        if (-not $skipUpdateEnvironment -and $checkPerformed)
+        {
+            "Adding check result '$($server | ConvertTo-Json -Compress)' to global variable." | Write-IbLogfile | Write-Verbose;
+            $global:infoblox_servers += $server;
+        }
+        #endregion /Update $global:infoblox_servers variable
+
+
+        return $result;
     }
-    else
-    {
-        Write-Verbose "Setting environment variable 'INFOBLOX_PWSH_TRANSCRIPT_PATH = $logPath/$fileName' to store Powershell transcript path.";
-        Set-Item -Path "env:INFOBLOX_PWSH_TRANSCRIPT_PATH" -Value "$logPath/$fileName";
+
+    
+    END {
+        "Finished execution 'Test-IbServer'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Set-IbLogfilePath.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbServer.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Write-IbLogfile.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsServer.ps1
+function Test-IbWindowsServer {
+    [CmdletBinding()]
+    param (
+        # Computer name
+        [Parameter(Mandatory)]
+        [string]
+        $server
+    );
+
+    
+    BEGIN {
+        "Running 'Test-IbWindowsServer'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        "Verifying if '$server' machine is reachable on port TCP 135." | Write-IbLogfile | Write-Verbose;
+
+        
+        try
+        {
+            $resolveDns = Resolve-DnsName -Name $server -Verbose:$false -ErrorAction Stop;
+        }
+        catch
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Unkown error type. Error while trying to resolve DNS name '$server'.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            $result = $false;
+        }
+
+
+        if ($resolveDns)
+        {
+            try
+            {
+                $originalProgressPreference = $global:ProgressPreference;
+                $global:ProgressPreference = "SilentlyContinue";
+                $tcpPing = Test-NetConnection -ComputerName $server -Port 135 -WarningAction SilentlyContinue -ErrorAction Stop;
+                $global:ProgressPreference = $originalProgressPreference;
+            }
+            catch
+            {
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "common";
+                    message = $_.Exception.Message;
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+                "Unkown error type. Error while trying to reach '$server' machine on port TCP 135.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+                $result = $false;
+            }
+
+
+            if ($tcpPing.TcpTestSucceeded)
+            {
+                $result = $true;
+                "Machine '$server' is reachable." | Write-IbLogfile | Write-Verbose;
+            }
+            else
+            {
+                $result = $false;
+                "Machine '$server' is unreachable on port TCP 135." | Write-IbLogfile -severity Warning | Write-Warning;
+
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "common";
+                    message = "Machine '$server' is unreachable on port TCP 135.";
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+            }
+        }
+        else
+        {
+            "DNS name '$server' could not be resolved." | Write-IbLogfile -severity Warning | Write-Warning;
+            $result = $false;
+
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "common";
+                message = "DNS name '$server' could not be resolved.";
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+        }
+        
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Test-IbWindowsServer'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsServer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsService.ps1
+function Test-IbWindowsService {
+    [CmdletBinding(DefaultParameterSetName = "ServiceName")]
+    param (
+        # Computer name
+        [Parameter(Mandatory)]
+        [string]
+        $server,
+
+        # Service name
+        [Parameter(Mandatory, ParameterSetName = "ServiceName")]
+        [string]
+        $serviceName,
+
+        # Check DNS service
+        [Parameter(ParameterSetName = "DnsService")]
+        [switch]
+        $dnsService,
+
+        # Check DHCP service
+        [Parameter(ParameterSetName = "DhcpService")]
+        [switch]
+        $dhcpService
+    );
+
+    
+    BEGIN {
+        "Running 'Test-IbWindowsService'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        if ($dnsService)
+        {
+            $serviceName = "DNS";
+        }
+        if ($dhcpService)
+        {
+            $serviceName = "DHCPServer";
+        }
+
+
+        "Verifying if '$serviceName' Windows service is running on the '$server' machine." | Write-IbLogfile | Write-Verbose;
+        
+        try
+        {
+            $serviceStatus = Get-Service -Name $serviceName -ComputerName $server -ErrorAction Stop;
+
+            $result = [pscustomobject]@{
+                name = $serviceStatus.name;
+                displayName = $serviceStatus.DisplayName;
+                status = $serviceStatus.Status;
+                startType = $serviceStatus.StartType;
+                running = if ($serviceStatus.Status -eq "Running") { $true } else { $false };
+            };
+        }
+        catch [Microsoft.PowerShell.Commands.ServiceCommandException]
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Error while getting status of the '$serviceName' Windows service from the '$server' machine.`n`t$_`n`t$(Get-IbServiceCommandExceptionCustomErrorMessage -exception $_.Exception)`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            $result = $false;
+        }
+        catch [Microsoft.Management.Infrastructure.CimException]
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Error while getting status of the '$serviceName' Windows service from the '$server' machine.`n`t$_`n`t$(Get-IbCimExceptionCustomErrorMessage -exception $_.Exception)`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            $result = $false;
+        }
+        catch
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "common";
+                message = $_.Exception.Message;
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Unkown error type. Error while getting status of the '$serviceName' Windows service from the '$server' machine.`n`t$_`n`t$($_.InvocationInfo.PositionMessage)" | Write-IbLogfile -severity Error | Write-Error;
+            $result = $false;
+        }
+
+
+        if ($result -and -not $result.running)
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "common";
+                message = "Server '$server' is running, but windows service '$serviceName' is not in the 'Running' state.";
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Server '$server' is running, but windows service '$serviceName' is not in the 'Running' state." | Write-IbLogfile -severity Warning | Write-Warning;
+            
+            $result = $false;
+        }
+        elseif ($result -and $result.running)
+        {
+            $result = $true;
+        }
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution 'Test-IbWindowsService'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsService.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Write-IbLogfile.ps1
 function Write-IbLogfile {
     [CmdletBinding()]
     param (
@@ -467,7 +1019,9 @@ function Write-IbLogfile {
         $severity = "Info",
 
         # Do not return $text as output
-        [Parameter()][switch]$noOutput
+        [Parameter()]
+        [switch]
+        $noOutput
     );
 
 
@@ -480,34 +1034,41 @@ function Write-IbLogfile {
         $datetimeStamp = Get-Date -Format "yyyy-MM-dd HH-mm-ss->fff";
         
         #region Format spaces
-        if ($severity.Length -le 7) {
+        if ($severity.Length -le 7)
+        {
             $severityStamp = "[$severity]";
-            for ($i = $severity.Length; $i -le 7; $i++) {
+            for ($i = $severity.Length; $i -le 7; $i++)
+            {
                 $severityStamp = $severityStamp + " ";
             }
         }
         #endregion /Format spaces
 
 
-        try {
+        try
+        {
             Add-Content -Path $logPath -Encoding UTF8 -Value $($datetimeStamp + "  $severityStamp " + $text) -ErrorAction Stop;
         }
-        catch {
+        catch
+        {
             Write-Error "Error while trying to write the log file '$logPath'.";
             throw $_;
         }
 
 
-        if (-not $noOutput) { return $text; }
+        if (-not $noOutput)
+        {
+            return $text;
+        }
     }
  
 
     END {}
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/common/Write-IbLogfile.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Write-IbLogfile.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpScope.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpScope.ps1
 function Get-IbAdDhcpScope {
     [CmdletBinding(DefaultParameterSetName = "All")]
     param (
@@ -543,8 +1104,15 @@ function Get-IbAdDhcpScope {
         try
         {
             "Getting scopes from the DHCP server '$dhcpServer'." | Write-IbLogfile | Write-Verbose;
-            [array]$ipv4Scopes = Get-DhcpServerv4Scope -ComputerName $dhcpServer -ErrorAction Stop;
-            [array]$ipv6Scopes = Get-DhcpServerv6Scope -ComputerName $dhcpServer -ErrorAction Stop;
+            if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
+            {
+                [array]$ipv4Scopes = Get-DhcpServerv4Scope -ComputerName $dhcpServer -ErrorAction Stop;
+                [array]$ipv6Scopes = Get-DhcpServerv6Scope -ComputerName $dhcpServer -ErrorAction Stop;
+            }
+            else
+            {
+                "DHCP server '$dhcpServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
         }
         catch [Microsoft.Management.Infrastructure.CimException]
         {
@@ -603,10 +1171,10 @@ function Get-IbAdDhcpScope {
         "Finished execution 'Get-IbAdDhcpScope'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpScope.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpScope.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServer.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpServer.ps1
 function Get-IbAdDhcpServer {
     [CmdletBinding()]
     param (
@@ -619,14 +1187,14 @@ function Get-IbAdDhcpServer {
     
     BEGIN {
         "Running 'Get-IbAdDhcpServer'." | Write-IbLogfile | Write-Verbose;
-
-        $result = $null;
     }
 
     
     PROCESS {
-        "Getting list of authorized DHCP servers from AD." | Write-IbLogfile | Write-Verbose;
+        $result = $null;
 
+        
+        "Getting list of authorized DHCP servers from AD." | Write-IbLogfile | Write-Verbose;
 
         #region Getting DHCP servers using Powershell
         try
@@ -662,30 +1230,35 @@ function Get-IbAdDhcpServer {
         "Finished execution 'Get-IbAdDhcpServer'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServer.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpServer.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLease.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpServerLease.ps1
 function Get-IbAdDhcpServerLease {
-    [CmdletBinding(DefaultParameterSetName = "All")]
+    [CmdletBinding(DefaultParameterSetName = "ipv4")]
     param (
         # DHCP server
         [Parameter(Mandatory)]
         [string]
         $dhcpServer,
 
-        # Scope ID
-        [Parameter(Mandatory)]
+        # Scope ID - for IPv4 scopes
+        [Parameter(Mandatory, ParameterSetName = "ipv4")]
         [string]
         $scopeId,
 
+        # Prefix - for IPv4 scopes
+        [Parameter(Mandatory, ParameterSetName = "ipv6")]
+        [string]
+        $scopePrefix,
+
         # IPv4
-        [Parameter(ParameterSetName = "ipv4")]
+        [Parameter(Mandatory, ParameterSetName = "ipv4")]
         [switch]
         $ipv4,
 
         # IPv6
-        [Parameter(ParameterSetName = "ipv6")]
+        [Parameter(Mandatory, ParameterSetName = "ipv6")]
         [switch]
         $ipv6
     );
@@ -697,12 +1270,24 @@ function Get-IbAdDhcpServerLease {
 
     
     PROCESS {
+        $result,
+        $ipv4Leases,
+        $ipv6Leases = $null;
+
+
         #region IPv4 leases
         if ($ipv4)
         {
             try
             {
-                $result = Get-DhcpServerv4Lease -ComputerName $dhcpServer -scopeid $scopeId;
+                if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
+                {
+                    [array]$ipv4Leases = Get-DhcpServerv4Lease -ComputerName $dhcpServer -scopeid $scopeId -ErrorAction Stop;
+                }
+                else
+                {
+                    "DHCP server '$dhcpServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+                }
             }
             catch [Microsoft.Management.Infrastructure.CimException]
             {
@@ -732,7 +1317,14 @@ function Get-IbAdDhcpServerLease {
         {
             try
             {
-                $result = Get-DhcpServerv6Lease -ComputerName $dhcpServer -scopeid $scopeId;
+                if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
+                {
+                    [array]$ipv6Leases = Get-DhcpServerv6Lease -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
+                }
+                else
+                {
+                    "DHCP server '$dhcpServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+                }
             }
             catch [Microsoft.Management.Infrastructure.CimException]
             {
@@ -756,6 +1348,11 @@ function Get-IbAdDhcpServerLease {
         }
         #endregion /IPv6 leases
         
+
+        $result = $ipv4Leases + $ipv6Leases;
+
+
+        return $result;
     }
 
     
@@ -763,10 +1360,10 @@ function Get-IbAdDhcpServerLease {
         "Finished execution 'Get-IbAdDhcpServerLease'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLease.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpServerLease.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLps.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpServerLps.ps1
 function Get-IbAdDhcpServerLps {
     [CmdletBinding()]
     param (
@@ -778,12 +1375,18 @@ function Get-IbAdDhcpServerLps {
 
     
     BEGIN {
-        $result = $null;
         "Running 'Get-IbAdDhcpServerLps'." | Write-IbLogfile | Write-Verbose;
     }
 
     
     PROCESS {
+        $result = $null;
+        $ipv4Stats = $null;
+        $ipv6Stats = $null;
+        $ipv4Lps = $null;
+        $ipv6Lps = $null;
+
+        
         "Getting information from '$dhcpServer' DHCP server." | Write-IbLogfile | Write-Verbose;
 
         #region Getting DHCP server statistics
@@ -791,7 +1394,15 @@ function Get-IbAdDhcpServerLps {
             try
             {
                 "Getting DHCP server IPv4 statistics." | Write-IbLogfile | Write-Verbose;
-                $ipv4Stats = Get-DhcpServerv4Statistics -ComputerName $dhcpServer -ErrorAction Stop;
+
+                if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
+                {
+                    $ipv4Stats = Get-DhcpServerv4Statistics -ComputerName $dhcpServer -ErrorAction Stop;
+                }
+                else
+                {
+                    "DHCP server '$dhcpServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+                }
             }
             catch [Microsoft.Management.Infrastructure.CimException]
             {
@@ -818,7 +1429,15 @@ function Get-IbAdDhcpServerLps {
             try
             {
                 "Getting DHCP server IPv6 statistics." | Write-IbLogfile | Write-Verbose;
-                $ipv6Stats = Get-DhcpServerv6Statistics -ComputerName $dhcpServer -ErrorAction Stop;
+                
+                if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
+                {
+                    $ipv6Stats = Get-DhcpServerv6Statistics -ComputerName $dhcpServer -ErrorAction Stop;
+                }
+                else
+                {
+                    "DHCP server '$dhcpServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+                }
             }
             catch [Microsoft.Management.Infrastructure.CimException]
             {
@@ -841,11 +1460,22 @@ function Get-IbAdDhcpServerLps {
             #endregion /Getting IPv6 statistics
             #endregion /Getting DHCP server statistics
 
-            $uptime = ($(Get-Date) - $ipv4Stats.ServerStartTime).TotalSeconds;
-            [float]$ipv4Lps = [Math]::Round($ipv4Stats.Acks / $uptime, 2);
-            [float]$ipv6Lps = [Math]::Round($ipv6Stats.Confirms / $uptime, 2);
+            
+            if ($ipv4Stats -and $ipv6Stats)
+            {
+                $uptime = ($(Get-Date) - $ipv4Stats.ServerStartTime).TotalSeconds;
+                [decimal]$ipv4Lps = [Math]::Round($ipv4Stats.Acks / $uptime, 2);
+                [decimal]$ipv6Lps = [Math]::Round($ipv6Stats.Confirms / $uptime, 2);
+                $result = $ipv4Lps + $ipv6Lps
 
-            return $($ipv4Lps + $ipv6Lps);
+                "Calculated LPS for the server '$dhcpServer = $result'." | Write-IbLogfile | Write-Verbose;
+            }
+            else
+            {
+                $result = 0;
+            }
+
+            return $result;
     }
 
     
@@ -853,17 +1483,17 @@ function Get-IbAdDhcpServerLps {
         "Finished execution 'Get-IbAdDhcpServerLps'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dhcp/Get-IbAdDhcpServerLps.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpServerLps.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdDomainController.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdDomainController.ps1
 function Get-IbAdDomainController {
     [CmdletBinding()]
     param (
         # Domain name
         [Parameter(Mandatory)]
         [string]
-        $domainName,
+        $domain,
 
         # Filter by Global Catalog role
         [Parameter()]
@@ -873,30 +1503,23 @@ function Get-IbAdDomainController {
 
     
     BEGIN {
-        $result = -2;
         "Running 'Get-IbAdDomainController'." | Write-IbLogfile | Write-Verbose;
     }
 
     
     PROCESS {
-        $params = @{};
+        $result,
+        $params = $null;
 
-        #region Processing 'domainName' parameter flag was passed
-        if ($domainName)
-        {
-            "Discovering AD domain controllers for the '$domainName' AD domain." | Write-IbLogfile | Write-Verbose;
-            $params.Server = $domainName;
-        }
-        else
-        {
-            "Discovering AD domain controllers for the current AD domain." | Write-IbLogfile | Write-Verbose;
-            $params = @{};
-        }
-        #endregion /Processing 'domainName' parameter flag was passed
+
+        $params = @{
+            Server = $domain;
+        };
 
 
         #region 'globalCatalog' flag was passed
-        if ($globalCatalog) {
+        if ($globalCatalog)
+        {
             "'globalCatalog' flag was passed." | Write-IbLogfile | Write-Verbose;
             $params.Service = "GlobalCatalog";
         }
@@ -906,8 +1529,15 @@ function Get-IbAdDomainController {
         #region Sending request
         try
         {
-            [array]$result = Get-ADDomainController @params -Filter "*" -ErrorAction Stop;
-            "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+            if (Test-IbServer -serverName $domain -serverType default)
+            {
+                [array]$result = Get-ADDomainController @params -Filter "*" -ErrorAction Stop;
+                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+            }
+            else
+            {
+                "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
         }
         catch
         {
@@ -929,10 +1559,10 @@ function Get-IbAdDomainController {
         "Finished execution 'Get-IbAdDomainController'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdDomainController.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdDomainController.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdForest.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdForest.ps1
 function Get-IbAdForest {
     [CmdletBinding()]
     param (
@@ -979,10 +1609,10 @@ function Get-IbAdForest {
         "Finished execution 'Get-IbAdForest'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdForest.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdForest.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdServer.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdServer.ps1
 function Get-IbAdServer {
     [CmdletBinding()]
     param (
@@ -998,8 +1628,7 @@ function Get-IbAdServer {
         $properties = @("name"),
 
         # AD domain name (FQDN)
-        [Parameter()]
-        [ValidateNotNullOrEmpty()]
+        [Parameter(Mandatory)]
         [string]
         $domain,
 
@@ -1011,42 +1640,46 @@ function Get-IbAdServer {
 
     
     BEGIN {
-        $result = -2;
         "Running 'Get-IbAdServer'." | Write-IbLogfile | Write-Verbose;
     }
 
     
     PROCESS {
+        $result = $null;
+
+
         if ($useAdsi)
         {
-            #region Using ADSI queries
-            "'useAdsi' flag was passed. Will be using ADSI queries instead of Powershell." | Write-IbLogfile | Write-Verbose;
+            # #region Using ADSI queries
+            # "'useAdsi' flag was passed. Will be using ADSI queries instead of Powershell." | Write-IbLogfile | Write-Verbose;
 
 
-            #region Setting ADSI filter
-            if ($name)
-            {
-                "Getting server '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $query = "(&(&(objectCategory=computer)(objectClass=computer)(name=$name)(operatingSystem=*server*)))";
-            }
-            else
-            {
-                "Getting servers from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $query = "(&(&(objectCategory=computer)(objectClass=computer)(operatingSystem=*server*)))";
-            }
-            #endregion /Setting ADSI filter
+            # #region Setting ADSI filter
+            # if ($name)
+            # {
+            #     "Getting server '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+            #     $query = "(&(&(objectCategory=computer)(objectClass=computer)(name=$name)(operatingSystem=*server*)))";
+            # }
+            # else
+            # {
+            #     "Getting servers from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+            #     $query = "(&(&(objectCategory=computer)(objectClass=computer)(operatingSystem=*server*)))";
+            # }
+            # #endregion /Setting ADSI filter
 
 
-            if ($domain) { $searchRoot = [adsi]"LDAP://$domain/dc=$($domain.Split(".") -join ",dc=")"; }
+            # if ($domain) { $searchRoot = [adsi]"LDAP://$domain/dc=$($domain.Split(".") -join ",dc=")"; }
 
 
-            [array]$result = Invoke-IbAdAdsiQuery -query $query -searchRoot $searchRoot -properties $properties;
-            #endregion /Using ADSI queries
+            # [array]$result = Invoke-IbAdAdsiQuery -query $query -searchRoot $searchRoot -properties $properties;
+            # #endregion /Using ADSI queries
         }
         else
         {
             #region Using Powershell cmdlets
-            $params = @{};
+            $params = @{
+                Server = $domain;
+            };
 
 
             #region Setting ADSI filter
@@ -1065,14 +1698,17 @@ function Get-IbAdServer {
             #endregion /Setting ADSI filter
             
 
-
-            if ($domain) { $params.Server = $domain; }
-
-
             try
             {
-                [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
-                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+                if (Test-IbServer -serverName $domain -serverType default)
+                {
+                    [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
+                    "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+                }
+                else
+                {
+                    "AD domain controller '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+                }
             }
             catch
             {
@@ -1087,7 +1723,14 @@ function Get-IbAdServer {
         }
         
 
-        return $result;
+        if ($result)
+        {
+            Write-Output -NoEnumerate $result;
+        }
+        else
+        {
+            return $null;
+        }
     }
 
     
@@ -1095,10 +1738,10 @@ function Get-IbAdServer {
         "Finished execution 'Get-IbAdServer'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdServer.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdServer.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdSubnet.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSubnet.ps1
 function Get-IbAdSubnet {
     [CmdletBinding(DefaultParameterSetName = "ipv4")]
     param (
@@ -1115,7 +1758,6 @@ function Get-IbAdSubnet {
 
     
     BEGIN {
-        $result = $null;
         "Running 'Get-IbAdSubnet'." | Write-IbLogfile | Write-Verbose;
 
         $privateIpv4Ranges = "(^127\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)";
@@ -1125,6 +1767,9 @@ function Get-IbAdSubnet {
 
     
     PROCESS {
+        $result = $null;
+
+
         "Getting AD replication subnets." | Write-IbLogfile | Write-Verbose;
 
         try
@@ -1167,10 +1812,10 @@ function Get-IbAdSubnet {
         "Finished execution 'Get-IbAdSubnet'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdSubnet.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSubnet.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdUser.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdUser.ps1
 function Get-IbAdUser {
     [CmdletBinding(DefaultParameterSetName = "EnabledAndDisabled")]
     param (
@@ -1194,22 +1839,25 @@ function Get-IbAdUser {
         [switch]
         $excludeServiceAccounts,
 
-        # DC to connect to
-        [Parameter(ValueFromPipeline)]
+        # Domain to get users from
+        [Parameter(Mandatory, ValueFromPipeline)]
         [string]
-        $server
+        $domain
     );
 
     
     BEGIN {
-        $result = -2;
         "Running 'Get-IbAdUser'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
     }
 
     
     PROCESS {
+        $result = $null;
+
+
         $params = [hashtable]@{
-            filter = @();
+            Server = $domain;
+            Filter = @();
         };
 
 
@@ -1239,15 +1887,6 @@ function Get-IbAdUser {
         #endregion /Processing 'enabledOnly' flag
 
 
-        #region Process 'server'
-        if ($server)
-        {
-            "'server' parameter specified. Using '$server' as a source for users." | Write-IbLogfile | Write-Verbose;
-            $params.server = $server;
-        }
-        #endregion Process 'server'
-
-
         try
         {
             if ($params.filter.count -eq 0)
@@ -1259,9 +1898,16 @@ function Get-IbAdUser {
                 $params.filter = $($params.filter | ?{$_ -ne "*"}) -join " -and ";
             }
             "Using filter: '$($params.filter)'." | Write-IbLogfile | Write-Verbose;
-            [array]$result = Get-ADUser @params -Properties $properties -ErrorAction Stop;
 
-            "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+            if (Test-IbServer -serverName $domain -serverType default)
+            {
+                [array]$result = Get-ADUser @params -Properties $properties -ErrorAction Stop;
+                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+            }
+            else
+            {
+                "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
         }
         catch
         {
@@ -1282,10 +1928,10 @@ function Get-IbAdUser {
         "Finished execution 'Get-IbAdUser'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdUser.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdUser.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdWorkstation.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdWorkstation.ps1
 function Get-IbAdWorkstation {
     [CmdletBinding()]
     param (
@@ -1301,7 +1947,9 @@ function Get-IbAdWorkstation {
         $properties = @("name"),
 
         # AD domain name (FQDN)
-        [Parameter()][ValidateNotNullOrEmpty()][string]$domain,
+        [Parameter(Mandatory)]
+        [string]
+        $domain,
 
         # User ADSI queries instead of Powershell
         [Parameter()]
@@ -1311,12 +1959,14 @@ function Get-IbAdWorkstation {
 
     
     BEGIN {
-        $result = -2;
         "Running 'Get-IbAdWorkstation'." | Write-IbLogfile | Write-Verbose;
     }
 
     
     PROCESS {
+        $result = $null;
+
+
         if ($useAdsi)
         {
             #region Using ADSI queries
@@ -1348,7 +1998,9 @@ function Get-IbAdWorkstation {
         else
         {
             #region Using Powershell cmdlets
-            $params = @{};
+            $params = @{
+                Server = $domain;
+            };
 
 
             #region Setting ADSI filter
@@ -1365,13 +2017,17 @@ function Get-IbAdWorkstation {
             #endregion /Setting ADSI filter
 
 
-            if ($domain) { $params.Server = $domain; }
-            
-
             try
             {
-                [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
-                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+                if (Test-IbServer -serverName $domain -serverType default)
+                {
+                    [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
+                    "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+                }
+                else
+                {
+                    "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+                }
             }
             catch
             {
@@ -1394,10 +2050,10 @@ function Get-IbAdWorkstation {
         "Finished execution 'Get-IbAdWorkstation'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_common/Get-IbAdWorkstation.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdWorkstation.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_device_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_device_count.ps1
 function infoblox_dhcp_device_count {
     <#
     .DESCRIPTION
@@ -1425,7 +2081,7 @@ function infoblox_dhcp_device_count {
                 Get-IbAdDhcpServerLease -dhcpServer $_.DhcpServer -scopeId $_.ScopeId -ipv4;
             }
             [array]$ipv6Devices = $dhcpServers | Get-IbAdDhcpScope -ipv6 | ?{$_.State -eq "Active"} | %{
-                Get-IbAdDhcpServerLease -dhcpServer $_.DhcpServer -scopeId $_.ScopeId -ipv6;
+                Get-IbAdDhcpServerLease -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix -ipv6;
             }
 
 
@@ -1446,10 +2102,10 @@ function infoblox_dhcp_device_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_device_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_device_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_lease_time.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_lease_time.ps1
 function infoblox_dhcp_lease_time {
     <#
     .DESCRIPTION
@@ -1492,7 +2148,7 @@ function infoblox_dhcp_lease_time {
                 | Measure-Object -Average `
                 | Select-Object -ExpandProperty Average;
 
-            [float]$result = ($ipv4Average + $ipv6Average) / 2;
+            [decimal]$result = ($ipv4Average + $ipv6Average) / 2;
         }
         else
         {
@@ -1509,10 +2165,10 @@ function infoblox_dhcp_lease_time {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_lease_time.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_lease_time.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_lps.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_lps.ps1
 function infoblox_dhcp_lps {
     <#
     .DESCRIPTION
@@ -1539,8 +2195,8 @@ function infoblox_dhcp_lps {
 
         if ($dhcpServers)
         {
-            [float]$result = $dhcpServers | Get-IbAdDhcpServerLps | Measure-Object -Average | Select-Object -ExpandProperty Average;
-            [float]$result = [Math]::Round($result, 2);
+            [decimal]$result = $dhcpServers | Get-IbAdDhcpServerLps | Measure-Object -Average | Select-Object -ExpandProperty Average;
+            [decimal]$result = [Math]::Round($result, 2);
         }
         else
         {
@@ -1556,10 +2212,10 @@ function infoblox_dhcp_lps {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_lps.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_lps.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_server_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_server_count.ps1
 function infoblox_dhcp_server_count {
     <#
     .DESCRIPTION
@@ -1589,10 +2245,10 @@ function infoblox_dhcp_server_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_server_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_server_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_subnet_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_subnet_count.ps1
 function infoblox_dhcp_subnet_count {
     <#
     .DESCRIPTION
@@ -1622,10 +2278,10 @@ function infoblox_dhcp_subnet_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_subnet_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_subnet_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_vendor.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_vendor.ps1
 function infoblox_dhcp_vendor {
     <#
     .DESCRIPTION
@@ -1654,10 +2310,10 @@ function infoblox_dhcp_vendor {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dhcp_vendor.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dhcp_vendor.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_dnssec_used.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_dnssec_used.ps1
 function infoblox_dns_ext_dnssec_used {
     <#
     .DESCRIPTION
@@ -1692,10 +2348,10 @@ function infoblox_dns_ext_dnssec_used {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_dnssec_used.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_dnssec_used.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_forward_zone_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_forward_zone_count.ps1
 function infoblox_dns_ext_forward_zone_count {
     <#
     .DESCRIPTION
@@ -1727,10 +2383,10 @@ function infoblox_dns_ext_forward_zone_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_forward_zone_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_forward_zone_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_ipv6_used.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_ipv6_used.ps1
 function infoblox_dns_ext_ipv6_used {
     <#
     .DESCRIPTION
@@ -1768,10 +2424,10 @@ function infoblox_dns_ext_ipv6_used {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_ipv6_used.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_ipv6_used.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_qps.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_qps.ps1
 function infoblox_dns_ext_qps {
     <#
     .DESCRIPTION
@@ -1792,14 +2448,14 @@ function infoblox_dns_ext_qps {
 
     PROCESS {
         $domains = (Get-IbAdForest).Domains;
-        [float]$result = $domains `
+        [decimal]$result = $domains `
             | Get-IbAdDnsServer | Select-Object -Unique `
             | Select-IbAdDnsServer -external `
             | Get-IbAdDnsZone -external | Select-Object -Unique DnsServer -ExpandProperty DnsServer `
             | Get-IbAdDnsServerQps `
             | Measure-Object -Sum | Select-Object -ExpandProperty Sum;
             
-        [float]$result = [Math]::Round($result, 2);
+        [decimal]$result = [Math]::Round($result, 2);
 
         return @("dns_ext_qps", $result);
     }
@@ -1810,10 +2466,10 @@ function infoblox_dns_ext_qps {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_qps.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_qps.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_record_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_record_count.ps1
 function infoblox_dns_ext_record_count {
     <#
     .DESCRIPTION
@@ -1850,10 +2506,10 @@ function infoblox_dns_ext_record_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_record_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_record_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_reverse_zone_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_reverse_zone_count.ps1
 function infoblox_dns_ext_reverse_zone_count {
     <#
     .DESCRIPTION
@@ -1885,10 +2541,10 @@ function infoblox_dns_ext_reverse_zone_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_reverse_zone_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_reverse_zone_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_server_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_server_count.ps1
 function infoblox_dns_ext_server_count {
     <#
     .DESCRIPTION
@@ -1919,10 +2575,10 @@ function infoblox_dns_ext_server_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_ext_server_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_ext_server_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_ad_domain_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_ad_domain_count.ps1
 function infoblox_dns_int_ad_domain_count {
     <#
     .DESCRIPTION
@@ -1952,10 +2608,10 @@ function infoblox_dns_int_ad_domain_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_ad_domain_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_ad_domain_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_caching_forwarders.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_caching_forwarders.ps1
 function infoblox_dns_int_caching_forwarders {
     <#
     .DESCRIPTION
@@ -1986,10 +2642,10 @@ function infoblox_dns_int_caching_forwarders {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_caching_forwarders.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_caching_forwarders.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_dnssec_used.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_dnssec_used.ps1
 function infoblox_dns_int_dnssec_used {
     <#
     .DESCRIPTION
@@ -2024,10 +2680,10 @@ function infoblox_dns_int_dnssec_used {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_dnssec_used.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_dnssec_used.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_forward_zone_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_forward_zone_count.ps1
 function infoblox_dns_int_forward_zone_count {
     <#
     .DESCRIPTION
@@ -2058,10 +2714,10 @@ function infoblox_dns_int_forward_zone_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_forward_zone_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_forward_zone_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_ipv6_used.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_ipv6_used.ps1
 function infoblox_dns_int_ipv6_used {
     <#
     .DESCRIPTION
@@ -2099,10 +2755,10 @@ function infoblox_dns_int_ipv6_used {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_ipv6_used.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_ipv6_used.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_qps.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_qps.ps1
 function infoblox_dns_int_qps {
     <#
     .DESCRIPTION
@@ -2123,14 +2779,14 @@ function infoblox_dns_int_qps {
 
     PROCESS {
         $domains = (Get-IbAdForest).Domains;
-        [float]$result = $domains `
+        [decimal]$result = $domains `
             | Get-IbAdDnsServer | Select-Object -Unique `
             | Select-IbAdDnsServer -internal `
             | Get-IbAdDnsZone -internal | Select-Object -Unique DnsServer -ExpandProperty DnsServer `
             | Get-IbAdDnsServerQps `
             | Measure-Object -Sum | Select-Object -ExpandProperty Sum;
             
-        [float]$result = [Math]::Round($result, 2);
+        [decimal]$result = [Math]::Round($result, 2);
 
         return @("dns_int_qps", $result);
     }
@@ -2141,10 +2797,10 @@ function infoblox_dns_int_qps {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_qps.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_qps.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_record_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_record_count.ps1
 function infoblox_dns_int_record_count {
     <#
     .DESCRIPTION
@@ -2181,10 +2837,10 @@ function infoblox_dns_int_record_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_record_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_record_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_reverse_zone_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_reverse_zone_count.ps1
 function infoblox_dns_int_reverse_zone_count {
     <#
     .DESCRIPTION
@@ -2215,10 +2871,10 @@ function infoblox_dns_int_reverse_zone_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_reverse_zone_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_reverse_zone_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_server_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_server_count.ps1
 function infoblox_dns_int_server_count {
     <#
     .DESCRIPTION
@@ -2249,10 +2905,10 @@ function infoblox_dns_int_server_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_server_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_server_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_vendor.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_vendor.ps1
 function infoblox_dns_int_vendor {
     <#
     .DESCRIPTION
@@ -2281,10 +2937,10 @@ function infoblox_dns_int_vendor {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/dns_int_vendor.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/dns_int_vendor.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_active_ip.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/gen_active_ip.ps1
 function infoblox_gen_active_ip {
     <#
     .DESCRIPTION
@@ -2329,10 +2985,10 @@ function infoblox_gen_active_ip {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_active_ip.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/gen_active_ip.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_active_user.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/gen_active_user.ps1
 function infoblox_gen_active_user {
     <#
     .DESCRIPTION
@@ -2373,10 +3029,10 @@ function infoblox_gen_active_user {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_active_user.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/gen_active_user.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_site_count.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/gen_site_count.ps1
 function infoblox_gen_site_count {
     <#
     .DESCRIPTION
@@ -2406,10 +3062,10 @@ function infoblox_gen_site_count {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_site_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/gen_site_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_vendor.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/gen_vendor.ps1
 function infoblox_gen_vendor {
     <#
     .DESCRIPTION
@@ -2438,10 +3094,10 @@ function infoblox_gen_vendor {
         " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/@infoblox_collection/gen_vendor.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@infoblox_collection/gen_vendor.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsForwarderConfiguration.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsForwarderConfiguration.ps1
 function Get-IbAdDnsForwarderConfiguration {
     [CmdletBinding()]
     param (
@@ -2459,12 +3115,24 @@ function Get-IbAdDnsForwarderConfiguration {
 
     
     PROCESS {
+        $result,
+        $generalForwardingConfig,
+        $forwarderZones = $null;
+
+
         "Getting the forwarding configuration for the '$dnsServer' DNS server." | Write-IbLogfile | Write-Verbose;
 
         #region Get general forwarding configuration
         try
         {
-            $generalForwardingConfig = Get-DnsServerForwarder -ComputerName $dnsServer -ErrorAction Stop;
+            if (Test-IbServer -serverName $dnsServer -serverType dns)
+            {
+                $generalForwardingConfig = Get-DnsServerForwarder -ComputerName $dnsServer -ErrorAction Stop;
+            }
+            else
+            {
+                "DNS server '$dnsServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
         }
         catch [Microsoft.Management.Infrastructure.CimException]
         {
@@ -2490,7 +3158,14 @@ function Get-IbAdDnsForwarderConfiguration {
         #region Get conditional forwarding zones
         try
         {
-            [array]$forwarderZones = Get-DnsServerZone -ComputerName $dnsServer | ?{$_.ZoneType -eq "Forwarder"};
+            if (Test-IbServer -serverName $dnsServer -serverType dns)
+            {
+                [array]$forwarderZones = Get-DnsServerZone -ComputerName $dnsServer -ErrorAction Stop | ?{$_.ZoneType -eq "Forwarder"};
+            }
+            else
+            {
+                "DNS server '$dnsServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
         }
         catch [Microsoft.Management.Infrastructure.CimException]
         {
@@ -2530,10 +3205,10 @@ function Get-IbAdDnsForwarderConfiguration {
         "Finished execution 'Get-IbAdDnsForwarderConfiguration'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsForwarderConfiguration.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsForwarderConfiguration.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsRecord.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsRecord.ps1
 function Get-IbAdDnsRecord {
     [CmdletBinding()]
     param (
@@ -2556,12 +3231,14 @@ function Get-IbAdDnsRecord {
 
     
     BEGIN {
-        $result = $null;
         "Running 'Get-IbAdDnsRecord'." | Write-IbLogfile | Write-Verbose;
     }
 
     
     PROCESS {
+        $result = $null;
+
+
         #region Prepare parameters for the 'Get-DnsServerResourceRecord' cmdlet depending on the provided request
         $params = @(
             [hashtable]@{
@@ -2611,9 +3288,16 @@ function Get-IbAdDnsRecord {
         #region Execute 'Get-DnsServerResourceRecord'
         try
         {
-            [array]$result = $params | %{
-                Get-DnsServerResourceRecord @_ -ErrorAction Stop;
-            };
+            if (Test-IbServer -serverName $dnsServer -serverType dns)
+            {
+                [array]$result = $params | %{
+                    Get-DnsServerResourceRecord @_ -ErrorAction Stop;
+                };
+            }
+            else
+            {
+                "DNS server '$dnsServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
         }
         catch [Microsoft.Management.Infrastructure.CimException]
         {
@@ -2636,7 +3320,15 @@ function Get-IbAdDnsRecord {
         #endregion /Execute 'Get-DnsServerResourceRecord'
 
 
-        return $result;
+        # If $result contains a lot of records, Write-Output will hang
+        if ($result.count -eq 1)
+        {
+            Write-Output -NoEnumerate $result;
+        }
+        else
+        {
+            return $result;
+        }
     }
 
     
@@ -2644,10 +3336,10 @@ function Get-IbAdDnsRecord {
         "Finished execution 'Get-IbAdDnsRecord'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsRecord.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsRecord.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsServer.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsServer.ps1
 function Get-IbAdDnsServer {
     [CmdletBinding()]
     param (
@@ -2659,12 +3351,14 @@ function Get-IbAdDnsServer {
 
     
     BEGIN {
-        $result = $null;
         "Running 'Get-IbAdDnsServer'." | Write-IbLogfile | Write-Verbose;
     }
 
     
     PROCESS {
+        $result = $null;
+
+
         "Getting DNS servers in the '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
 
         #region Get list of DNS servers
@@ -2673,7 +3367,15 @@ function Get-IbAdDnsServer {
             | %{$_.RecordData.NameServer.TrimEnd(".")};
         #endregion /Get list of DNS servers
 
-        return $result;
+        
+        if ($result)
+        {
+            Write-Output -NoEnumerate $result;
+        }
+        else
+        {
+            return $null;
+        }
     }
 
     
@@ -2681,10 +3383,10 @@ function Get-IbAdDnsServer {
         "Finished execution 'Get-IbAdDnsServer'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsServer.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsServer.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsServerQps.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsServerQps.ps1
 function Get-IbAdDnsServerQps {
     [CmdletBinding()]
     param (
@@ -2696,18 +3398,29 @@ function Get-IbAdDnsServerQps {
 
     
     BEGIN {
-        $result = $null;
         "Running 'Get-IbAdDnsServerQps'." | Write-IbLogfile | Write-Verbose;
     }
 
     
     PROCESS {
+        $result,
+        $statistics,
+        $qps = $null;
+
+
         "Getting QPS (queries per second) metric from '$dnsServer' DNS server." | Write-IbLogfile | Write-Verbose;
 
         #region Get statistics object
         try
         {
-            $statistics = Get-DnsServerStatistics -ComputerName $dnsServer -ErrorAction Stop;
+            if (Test-IbServer -serverName $dnsServer -serverType dns)
+            {
+                $statistics = Get-DnsServerStatistics -ComputerName $dnsServer -ErrorAction Stop;
+            }
+            else
+            {
+                "DNS server '$dnsServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
         }
         catch [Microsoft.Management.Infrastructure.CimException]
         {
@@ -2730,7 +3443,26 @@ function Get-IbAdDnsServerQps {
         #endregion /Get statistics object
 
 
-        [float]$qps = [Math]::Round($statistics.Query2Statistics.TotalQueries / $statistics.TimeStatistics.TimeElapsedSinceServerStart.TotalSeconds, 2);
+        if ($statistics.Query2Statistics.TotalQueries `
+            -and $statistics.TimeStatistics.TimeElapsedSinceServerStart.TotalSeconds `
+            -and $statistics.TimeStatistics.TimeElapsedSinceServerStart.TotalSeconds -ne 0)
+        {
+            [decimal]$qps = [Math]::Round($statistics.Query2Statistics.TotalQueries / $statistics.TimeStatistics.TimeElapsedSinceServerStart.TotalSeconds, 2);
+        }
+        elseif (-not $statistics)
+        {
+            $qps = 0;
+        }
+        else
+        {
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_dns";
+                message = "Error in calculations. Statistics data received from the server may be corrupted.";
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            };
+            "Error in calculations. Statistics data received from the server may be corrupted." | Write-IbLogfile -severity Error | Write-Error;
+            $qps = 0;
+        }
 
 
         return $qps;
@@ -2741,10 +3473,10 @@ function Get-IbAdDnsServerQps {
         "Finished execution 'Get-IbAdDnsServerQps'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsServerQps.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsServerQps.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsZone.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsZone.ps1
 function Get-IbAdDnsZone {
     [CmdletBinding(DefaultParameterSetName = "All")]
     param (
@@ -2758,10 +3490,10 @@ function Get-IbAdDnsZone {
         [Parameter()][switch]$internal,
 
         # Ratio to identify if the zone is 'external' or 'internal'
-        [Parameter()][float]$extIntRatio = 0.3,
+        [Parameter()][decimal]$extIntRatio = 0.3,
 
         # Ratio to identify if the zone contain IPv6 records
-        [Parameter()][float]$ipv6Ratio = 0.3,
+        [Parameter()][decimal]$ipv6Ratio = 0.3,
 
         # Get only 'ipv6' zones
         [Parameter()][switch]$ipv6,
@@ -2784,16 +3516,24 @@ function Get-IbAdDnsZone {
 
     
     PROCESS {
-        $result = $null;
-        $zones = $null;
-        $records = $null;
+        $result,
+        $zones,
+        $records,
+        $zoneRangePrefix = $null;
 
 
         #region Get all zones
         try
         {
             "Getting '$($PSCmdlet.ParameterSetName)' zones from the DNS server '$dnsServer'." | Write-IbLogfile | Write-Verbose;
-            $zones = Get-DnsServerZone -ComputerName $dnsServer | ?{-not $_.IsAutoCreated -and $_.ZoneType -ne "Forwarder" -and $_.ZoneName -ne "TrustAnchors"};
+            if (Test-IbServer -serverName $dnsServer -serverType dns)
+            {
+                $zones = Get-DnsServerZone -ComputerName $dnsServer -ErrorAction Stop | ?{-not $_.IsAutoCreated -and $_.ZoneType -ne "Forwarder" -and $_.ZoneName -ne "TrustAnchors"};
+            }
+            else
+            {
+                "DNS server '$dnsServer' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
         }
         catch [Microsoft.Management.Infrastructure.CimException]
         {
@@ -2819,6 +3559,9 @@ function Get-IbAdDnsZone {
         #region Loop through zones and count A/AAAA records
         foreach ($zone in $zones)
         {
+            "Classifying '$($zone.ZoneName)' zone." | Write-IbLogfile | Write-Verbose;
+
+
             #region Add properties to the object
             # Adding DnsServer property to results to use in other functions
             $zone | Add-Member -MemberType NoteProperty -Name "DnsServer" -Value $dnsServer;
@@ -2970,7 +3713,15 @@ function Get-IbAdDnsZone {
         "$($result.count) zones found." | Write-IbLogfile | Write-Verbose;
         
         
-        return $result;
+        # If $result contains a lot of records, Write-Output will hang
+        if ($result.count -eq 1)
+        {
+            Write-Output -NoEnumerate $result;
+        }
+        else
+        {
+            return $result;
+        }
     }
 
     
@@ -2978,10 +3729,10 @@ function Get-IbAdDnsZone {
         "Finished execution 'Get-IbAdDnsZone'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Get-IbAdDnsZone.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsZone.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Select-IbAdDnsServer.ps1
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Select-IbAdDnsServer.ps1
 function Select-IbAdDnsServer {
     [CmdletBinding(DefaultParameterSetName = "All")]
     param (
@@ -3008,12 +3759,20 @@ function Select-IbAdDnsServer {
 
     
     PROCESS {
+        #region Reset variables
+        $externalZones = $null;
+        #endregion /Reset variables
+
+
         "Checking if DNS server '$dnsServer' is 'internal' or 'external'." | Write-IbLogfile | Write-Verbose;
 
         
         $externalZones = $dnsServer | Get-IbAdDnsZone -external;
 
 
+        # Server can be either 'external' or 'internal', it cannot be 'external' and 'internal' at the same time.
+        # If at least one 'external' zone exist on the server - the whole server is considered as 'external'. Otherwise - it will be 'internal'.
+        # If we've got at least one 'external' zone - return the server
         if ($PSCmdlet.ParameterSetName -eq "External")
         {
             if ($externalZones)
@@ -3021,6 +3780,7 @@ function Select-IbAdDnsServer {
                 return $dnsServer;
             }
         }
+        # If we haven't got any 'external' zones - return the server
         elseif ($PSCmdlet.ParameterSetName -eq "Internal")
         {
             if (-not $externalZones)
@@ -3033,10 +3793,6 @@ function Select-IbAdDnsServer {
             "No filter passed. Returning server by default." | Write-IbLogfile | Write-Verbose;
             return $dnsServer;
         }
-        else
-        {
-            return $null;
-        }
     }
 
     
@@ -3044,29 +3800,25 @@ function Select-IbAdDnsServer {
         "Finished execution 'Select-IbAdDnsServer'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/_helpers/public/ad_dns/Select-IbAdDnsServer.ps1
-#endregion /./_helpers/public/
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Select-IbAdDnsServer.ps1
+#endregion /./src/helpers/public/
 
 
 #region ./_templates/common--main--body.ps1
-$version = "1.0.8.0.tags-v1.0.8.9161f95";
+$version = "1.0.8.0.tags-v1.0.8.47731f2";
 
 
 $dateTime = Get-Date -Format "yyyy-MM-dd_HH-mm-ss";
 $result = @();
 
 
-Set-IbLogfilePath -fileName "$dateTime.log";
-Set-IbLogfilePath -fileName "$dateTime.pwsh.log" -powershellTranscript;
-Set-IbCsvfilePath -fileName "$dateTime.csv";
+Initialize-IbGlobalVariables;
+Initialize-IbLogfilePath -fileName "$dateTime.log" | Out-Null;
+Initialize-IbLogfilePath -fileName "$dateTime.pwsh.log" -powershellTranscript | Out-Null;
+Initialize-IbCsvfilePath -fileName "$dateTime.csv";
 Write-Output " ";
 "Script version: $version" | Write-IbLogfile | Write-Output;
 Write-Output "";
-
-
-#region Initialize global variables
-$global:infoblox_errors = @();
-#endregion /Initialize global variables
 
 
 Start-Transcript -Path $env:INFOBLOX_PWSH_TRANSCRIPT_PATH;
@@ -3074,11 +3826,15 @@ Start-Transcript -Path $env:INFOBLOX_PWSH_TRANSCRIPT_PATH;
 
 #region Define metrics to collect
 $params = @{
-    customMetricName = $processOneMetricOnly;
     processDnsMetrics = $processDnsMetrics;
     processDhcpMetrics = $processDhcpMetrics;
     processGenMetrics = $processGenMetrics;
 };
+
+if ($processOneMetricOnly)
+{
+    $params.customMetricName = $processOneMetricOnly;
+}
 
 $metricsToProcess = New-IbCsMetricsList @params;
 
