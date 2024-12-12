@@ -31,6 +31,8 @@ Prerequisites
 -------------
 The script is supporting Powershell 5.1 or later.
 
+The Window system from where the script will be run should be joined to the MS AD Domain.
+
 It's mandatory that you run this script on the server with several Management Tools installed.
 You can check if you have them installed by running this command (run in elevated Powershell console):
 Windows Desktop systems:
@@ -43,7 +45,7 @@ Windows Desktop systems:
     - Get-WindowsFeature -name "RSAT-ADDS"
     - Get-WindowsFeature -name "RSAT-ADLDS"
     - Get-WindowsFeature -name "RSAT-DHCP"
-    - Get-WindowsFeature -name "RSAT-DNS"
+    - Get-WindowsFeature -name "RSAT-DNS-Server"
 
 You can install them by running this command (run in elevated Powershell console):
 Windows Desktop systems:
@@ -56,4 +58,4 @@ Windows Desktop systems:
     - Add-WindowsFeature -name "RSAT-ADDS"
     - Add-WindowsFeature -name "RSAT-ADLDS"
     - Add-WindowsFeature -name "RSAT-DHCP"
-    - Add-WindowsFeature -name "RSAT-DNS"
+    - Add-WindowsFeature -name "RSAT-DNS-Server"
