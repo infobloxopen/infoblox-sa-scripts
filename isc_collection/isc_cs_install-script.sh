@@ -35,8 +35,8 @@ fi
 
 
 #region Hard-coded variables
-DOWNLOAD_URL="https://github.com/infobloxopen/infoblox-sa-scripts/releases/download/isc-v1.1.4.0/SLSENB_ISC_CS_1.1.4.0.tags-v1.1.4.a1bb03c.zip"
-EXPECTED_HASH="8AA3DE108F99A9DC7A1ACEFC9FC1880A25C7A71BA03247B16E49C6913AC4A3FA"
+DOWNLOAD_URL="https://uploads.github.com/repos/infobloxopen/infoblox-sa-scripts/releases/190679274/assets{?name,label}"
+EXPECTED_HASH="864B8F65C881B1FDA4DAF4B340657E375D8D6B1F2D1085759301884D60AE9B53"
 DESTINATION_FOLDER="./ib-isc-cs"
 
 if [ -d "$DESTINATION_FOLDER" ]; then
