@@ -3,7 +3,7 @@
 ## SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.1.0.0.release-v1.0.11.8a2746c
+Version: 1.1.0.0.release-v1.0.11.6a0bbeb
 
 This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
 computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  

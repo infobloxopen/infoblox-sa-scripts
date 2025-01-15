@@ -2,7 +2,7 @@
 .SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.1.0.0.release-v1.0.11.8a2746c
+Version: 1.1.0.0.release-v1.0.11.6a0bbeb
 
 This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
 computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  
@@ -1220,7 +1220,15 @@ function Test-IbServer {
                     $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
                     if ($server.Tcp135Avail)
                     {
-                        $server.DnsWindowsServiceAvail = Test-IbWindowsService -server $serverName -dnsService;
+                        if ([System.Version]$PSVersionTable.PSVersion -lt [System.Version]"6.0")
+                        {
+                            $server.DnsWindowsServiceAvail = Test-IbWindowsService -server $serverName -dnsService;
+                        }
+                        else
+                        {
+                            "Script is running on Powershell version '$($PSVersionTable.PSVersion)'. Calling 'Get-Service' against remote computer is not supported. Assuming that DNS Windows service is running on the server '$serverName'." | Write-IbLogfile | Write-Verbose;
+                            $server.DnsWindowsServiceAvail = $true;
+                        }
                     }
                     if ($server.DnsWindowsServiceAvail)
                     {
@@ -1248,7 +1256,15 @@ function Test-IbServer {
                     $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
                     if ($server.Tcp135Avail)
                     {
-                        $server.DhcpWindowsServiceAvail = Test-IbWindowsService -server $serverName -dhcpService;
+                        if ([System.Version]$PSVersionTable.PSVersion -lt [System.Version]"6.0")
+                        {
+                            $server.DhcpWindowsServiceAvail = Test-IbWindowsService -server $serverName -dhcpService;
+                        }
+                        else
+                        {
+                            "Script is running on Powershell version '$($PSVersionTable.PSVersion)'. Calling 'Get-Service' against remote computer is not supported. Assuming that DHCP Windows service is running on the server '$serverName'." | Write-IbLogfile | Write-Verbose;
+                            $server.DhcpWindowsServiceAvail = $true;
+                        }
                     }
                     if ($server.DhcpWindowsServiceAvail)
                     {
@@ -1493,7 +1509,8 @@ function Test-IbWindowsService {
 
     
     PROCESS {
-        $result = $null;
+        $result,
+        $serviceStatus = $null;
 
         
         if ($dnsService)
@@ -4995,7 +5012,7 @@ class IbDnsServer : IbServer {
 
 
 #region ./_templates/common--main--body.ps1
-$version = "1.1.0.0.release-v1.0.11.8a2746c";
+$version = "1.1.0.0.release-v1.0.11.6a0bbeb";
 
 
 $dateTime = Get-Date -Format "yyyy-MM-dd_HH-mm-ss";
