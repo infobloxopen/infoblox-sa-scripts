@@ -2,7 +2,7 @@
 .SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.2.0.0.release-v1.1.0.6a0bbeb
+Version: 1.0.11.0.main.41736ff
 
 This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
 computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  
@@ -143,7 +143,7 @@ List of metrics:
     - gen_active_user  
     - gen_site_count  
     - gen_vendor  
-    - site_entry (temporary disabled)  
+    - site_entry
 
 
 SUPPORTED PARAMETERS
@@ -335,65 +335,6 @@ function Compare-IbHashtable {
     }
 }
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Compare-IbHashtable.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/ConvertFrom-IbAdDistinguishedName.ps1
-function ConvertFrom-IbAdDistinguishedName {
-    [CmdletBinding()]
-    param (
-        # AD distinguished name
-        [Alias("dn")]
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $distinguishedName
-    );
-
-    
-    BEGIN {
-        # "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-        $dnRegex = "^(?:(?<cn>CN=(?<name>[^,]*)),)?(?:(?<path>(?:(?:CN|OU)=[^,]+,?)+),)?(?<domain>(?:DC=[^,]+,?)+)$";
-    }
-
-    
-    PROCESS {
-        $result = $null;
-
-
-        if ($distinguishedName -notmatch $dnRegex)
-        {
-            "Provided Active Directory distinguished name '$distinguishedName' is not correct." | Write-IbLogfile -severity Error | Write-Error;
-
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_common";
-                message = "Cannot parse AD Distinguished Name '$distinguishedName'.";
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length - 1)].command -join " -> ";
-            };
-
-            return $null;
-        }
-
-
-        if ($distinguishedName -match $dnRegex)
-        {
-            $result = [pscustomobject]@{
-                name = $Matches["name"];
-                cn = $Matches["cn"];
-                path = $Matches["path"];
-                domain = $Matches["domain"];
-                dn = $distinguishedName;
-            };
-
-
-            return $result;
-        }
-    }
-
-    
-    END {
-        # "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/ConvertFrom-IbAdDistinguishedName.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Export-IbCsv.ps1
@@ -714,6 +655,10 @@ function New-IbCsErrorMessage {
     PROCESS {
         switch ($errorRecord.InvocationInfo.InvocationName)
         {
+            "Resolve-DnsName" {
+                $errorMessage = "Error while trying to resolve '<record>' DNS record.";
+                $errorCategory = "common";
+            }
             "Get-Service" {
                 $errorMessage = "Error while getting status of the '<serviceName>' Windows service from the '<server>' machine.";
                 $errorCategory = "common";
@@ -1013,6 +958,71 @@ function New-IbCsMetricsList {
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsMetricsList.ps1
 
 
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Resolve-IbDnsRecord.ps1
+function Resolve-IbDnsRecord {
+    [CmdletBinding()]
+    param (
+        # DNS record to resolve
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $record
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $cacheItem,
+        $noErrors = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        "Resolving DNS record '$record'." | Write-IbLogfile | Write-Verbose;
+
+
+        try
+        {
+            $result = Resolve-DnsName -Name $record -DnsOnly -ErrorAction Stop;
+            $noErrors = $true;
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to resolve '$record' DNS record.";
+            $noErrors = $false;
+        }
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Resolve-IbDnsRecord.ps1
+
+
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbCsPrerequisite.ps1
 function Test-IbCsPrerequisite {
     [CmdletBinding()]
@@ -1151,6 +1161,73 @@ function Test-IbCsPrerequisite {
     }
 }
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbCsPrerequisite.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbIpInCidr.ps1
+function Test-IbIpInCidr {
+    [CmdletBinding()]
+    [OutputType([System.Boolean])]
+    param (
+        # IP Address to check
+        [Parameter(Mandatory)]
+        [ValidateScript(
+            {
+                ([System.Net.IPAddress]$_).AddressFamily -eq "InterNetwork";
+            }
+        )]
+        [string]
+        $ipAddress,
+
+
+        # Range in which to search using CIDR notation. (ippaddr/bits)
+        [Parameter(Mandatory)]
+        [ValidateScript(
+            {
+                $ip   = ($_ -split '/')[0];
+                $bits = ($_ -split '/')[1];
+
+                ([System.Net.IPAddress]($ip)).AddressFamily -eq "InterNetwork";
+
+                if (-not($bits))
+                {
+                    throw "Missing CIDR notation.";
+                }
+                elseif (-not(0..32 -contains [int]$bits))
+                {
+                    throw "Invalid CIDR notation. The valid bit range is 0 to 32.";
+                }
+            }
+        )]
+        [string]
+        $range
+    );
+
+
+    #region Split range into the address and the CIDR notation
+    [String]$cidrAddress = $range.Split('/')[0];
+    [int]$cidrBits       = $range.Split('/')[1];
+    #endregion /Split range into the address and the CIDR notation
+
+
+    #region Address from range and the search address are converted to Int32 and the full mask is calculated from the CIDR notation
+    [int]$baseAddress    = [System.BitConverter]::ToInt32((([System.Net.IPAddress]::Parse($cidrAddress)).GetAddressBytes()), 0);
+    [int]$address        = [System.BitConverter]::ToInt32(([System.Net.IPAddress]::Parse($ipAddress).GetAddressBytes()), 0);
+    [int]$mask           = [System.Net.IPAddress]::HostToNetworkOrder(-1 -shl ( 32 - $cidrBits));
+    #endregion /Address from range and the search address are converted to Int32 and the full mask is calculated from the CIDR notation
+
+
+    #region Determine whether the address is in the range
+    if (($baseAddress -band $mask) -eq ($address -band $mask))
+    {
+        return $true;
+    }
+    else
+    {
+        return $false;
+    }
+    #endregion /Determine whether the address is in the range
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbIpInCidr.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbServer.ps1
@@ -1355,7 +1432,8 @@ function Test-IbService {
                 "dns"
                 {
                     $errorMessageCategory = "ad_dns";
-                    $result = Get-DnsServer -ComputerName $serverName -ErrorAction Stop;
+                    # '-WarningAction SilentlyContinue' here is removing the 'EnableRegistryBoot not applicable on DNS Server <server> version.' warnings.
+                    $result = Get-DnsServer -ComputerName $serverName -ErrorAction Stop -WarningAction SilentlyContinue;
                 }
                 "dhcp"
                 {
@@ -3384,19 +3462,27 @@ function infoblox_site_entry {
         
 
         $sites = Get-IbAdSite;
-        $siteIndex = 1;
+        $domains = (Get-IbAdForest).Domains;
+
+
+        $siteIndex = 0;
         $result = @();
         foreach ($site in $sites)
         {
+            $siteIndex++;
+
+
             $result += @{
                 key = "site_entry_$($siteIndex)_name";
                 value = $site.name;
             };
 
+
             $result += @{
                 key = "site_entry_$($siteIndex)_source";
                 value = "ADSite";
             };
+
 
             $result += @{
                 key = "site_entry_$($siteIndex)_user_count";
@@ -3407,6 +3493,7 @@ function infoblox_site_entry {
                     | Select-Object -ExpandProperty Sum;
             };
 
+
             $result += @{
                 key = "site_entry_$($siteIndex)_notes";
                 value = $(
@@ -3416,28 +3503,58 @@ function infoblox_site_entry {
                 ) -join ";";
             };
 
-            $result += @{
-                key = "site_entry_$($siteIndex)_services";
-                value = 0;
-            };
 
             $result += @{
-                key = "site_entry_$($siteIndex)_ext_dns";
-                value = 0;
-            };
-
-            $result += @{
-                key = "site_entry_$($siteIndex)_local_dns";
-                value = 0;
-            };
-
-            $result += @{
-                key = "site_entry_$($siteIndex)_data_center";
-                value = 0;
+                key = "site_entry_$($siteIndex)_subnet_count";
+                value = Get-IbAdSubnet -siteName $site.Name -ipv4 `
+                    | Measure-Object `
+                    | Select-Object -ExpandProperty Count;
             };
 
 
-            $siteIndex++;
+            $result += @{
+                key = "site_entry_$($siteIndex)_dns_service_count";
+                value = $domains `
+                    | Get-IbAdDnsServer `
+                    | Select-Object -Unique `
+                    | Resolve-IbDnsRecord `
+                    | ?{ Test-IbAdIpInSite -ipAddress $_.IpAddress -siteName $site.Name } `
+                    | Measure-Object `
+                    | Select-Object -ExpandProperty Count;
+            };
+
+
+            $result += @{
+                key = "site_entry_$($siteIndex)_dhcp_service_count";
+                value = Get-IbAdDhcpServer `
+                    | Resolve-IbDnsRecord `
+                    | ?{ Test-IbAdIpInSite -ipAddress $_.IpAddress -siteName $site.Name } `
+                    | Measure-Object `
+                    | Select-Object -ExpandProperty Count;
+            };
+
+
+            $result += @{
+                key = "site_entry_$($siteIndex)_server_count";
+                value = `
+                    $(
+                        $result `
+                            | ?{$_.key -eq "site_entry_$($siteIndex)_dns_service_count"} `
+                            | Select-Object @{Label = "Value"; Expression = {$_.value}} `
+                            | Select-Object -ExpandProperty Value
+                    ) + $(
+                        $result `
+                            | ?{$_.key -eq "site_entry_$($siteIndex)_dhcp_service_count"} `
+                            | Select-Object @{Label = "Value"; Expression = {$_.value}} `
+                            | Select-Object -ExpandProperty Value
+                    );
+            };
+
+
+            # $result += @{
+            #     key = "site_entry_$($siteIndex)_";
+            #     value = 0;
+            # };
         }
         
 
@@ -3451,6 +3568,65 @@ function infoblox_site_entry {
     }
 }
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_entry.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/ConvertFrom-IbAdDistinguishedName.ps1
+function ConvertFrom-IbAdDistinguishedName {
+    [CmdletBinding()]
+    param (
+        # AD distinguished name
+        [Alias("dn")]
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $distinguishedName
+    );
+
+    
+    BEGIN {
+        # "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        $dnRegex = "^(?:(?<cn>CN=(?<name>[^,]*)),)?(?:(?<path>(?:(?:CN|OU)=[^,]+,?)+),)?(?<domain>(?:DC=[^,]+,?)+)$";
+    }
+
+    
+    PROCESS {
+        $result = $null;
+
+
+        if ($distinguishedName -notmatch $dnRegex)
+        {
+            "Provided Active Directory distinguished name '$distinguishedName' is not correct." | Write-IbLogfile -severity Error | Write-Error;
+
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_common";
+                message = "Cannot parse AD Distinguished Name '$distinguishedName'.";
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length - 1)].command -join " -> ";
+            };
+
+            return $null;
+        }
+
+
+        if ($distinguishedName -match $dnRegex)
+        {
+            $result = [pscustomobject]@{
+                name = $Matches["name"];
+                cn = $Matches["cn"];
+                path = $Matches["path"];
+                domain = $Matches["domain"];
+                dn = $distinguishedName;
+            };
+
+
+            return $result;
+        }
+    }
+
+    
+    END {
+        # "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/ConvertFrom-IbAdDistinguishedName.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdComputer.ps1
@@ -3493,7 +3669,19 @@ function Get-IbAdComputer {
     PROCESS {
         $result,
         $params,
-        $ldapFilter = $null;
+        $ldapFilter,
+        $cacheItem,
+        $noErrors = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
 
 
         if ($useAdsi)
@@ -3559,20 +3747,30 @@ function Get-IbAdComputer {
                 {
                     [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
                     "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+                    $noErrors = $true;
                 }
                 else
                 {
                     "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+                    $noErrors = $false;
                 }
             }
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get computer objects from AD for '$domain' domain.";
+                $noErrors = $false;
             }
             #endregion /Using Powershell cmdlets
         }
 
 
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
         return $result;
     }
 
@@ -3774,7 +3972,12 @@ function Get-IbAdReplicationLink {
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSite.ps1
 function Get-IbAdSite {
     [CmdletBinding()]
-    param ();
+    param (
+        # Site name to return
+        [Parameter()]
+        [string]
+        $name
+    );
 
     
     BEGIN {
@@ -3783,20 +3986,117 @@ function Get-IbAdSite {
 
     
     PROCESS {
-        $result = $null;
+        $result,
+        $filter,
+        $cacheItem,
+        $noErrors = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
 
 
         "Getting AD sites from the current AD forest." | Write-IbLogfile | Write-Verbose;
 
 
+        #region Setting ADSI filter
+        if ($name)
+        {
+            "Setting filter to name '$name'." | Write-IbLogfile | Write-Verbose;
+            $filter = "name -eq '$name'";
+        }
+        else
+        {
+            $filter = "*";
+        }
+        #endregion /Setting ADSI filter
+
+
         try
         {
-            $result = Get-ADReplicationSite -Filter * -ErrorAction Stop;
+            $result = Get-ADReplicationSite -Filter $filter -ErrorAction Stop;
+            $noErrors = $true;
         }
         catch
         {
             $_ | New-IbCsErrorMessage;
+            $noErrors = $false;
         }
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSite.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSiteByIpAddress.ps1
+function Get-IbAdSiteByIpAddress {
+    [CmdletBinding()]
+    param (
+        # IP addresses to select AD Site from
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $ipAddress
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $subnets,
+        $siteName,
+        $result = $null;
+
+
+        "Getting AD site for the '$ipAddress' IP address." | Write-IbLogfile | Write-Verbose;
+
+
+        $subnets = Get-IbAdSubnet -ipv4;
+
+
+        foreach ($subnet in $subnets)
+        {
+            if (Test-IbIpInCidr -ipAddress $ipAddress -range $subnet.Name)
+            {
+                $siteName = ConvertFrom-IbAdDistinguishedName -distinguishedName $subnet.Site | Select-Object -ExpandProperty name;
+                $result = Get-IbAdSite -name $siteName;
+
+                "Address '$ipAddress' matches the subnet '$($subnet.Name)' in '$siteName' site." | Write-IbLogfile | Write-Verbose;
+                break;
+            }
+        }
+
+
+        #region If site was not found - then return Default-First-Site-Name
+        if (-not $result)
+        {
+            "Site was not found by searching through IP address. Returning 'Default-First-Site-Name' site." | Write-IbLogfile | Write-Verbose;
+
+            $result = Get-IbAdSite -name "Default-First-Site-Name";
+        }
+        #endregion /If site was not found - then return Default-First-Site-Name
 
 
         return $result;
@@ -3807,7 +4107,7 @@ function Get-IbAdSite {
         "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSite.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSiteByIpAddress.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSubnet.ps1
@@ -3944,7 +4244,7 @@ function Get-IbAdUser {
 
     
     BEGIN {
-        "Running 'Get-IbAdUser'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
+        "Running '$($MyInvocation.InvocationName)'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
     }
 
     
@@ -4018,10 +4318,117 @@ function Get-IbAdUser {
 
     
     END {
-        "Finished execution 'Get-IbAdUser'." | Write-IbLogfile | Write-Verbose;
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 }
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdUser.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdIpInSite.ps1
+function Test-IbAdIpInSite {
+    [CmdletBinding()]
+    param (
+        # IP Address to check
+        [Parameter(Mandatory)]
+        [object]
+        [ValidateScript(
+            {
+                if ($_ -is [System.String])
+                {
+                    $ipAddressString = $_;
+                }
+                elseif ($_ -is [Microsoft.DnsClient.Commands.DnsRecord])
+                {
+                    $ipAddressString = $_.IpAddress;
+                }
+
+
+                $([System.Net.IPAddress]$ipAddressString).AddressFamily -in @("InterNetwork", "InterNetworkV6");
+            }
+        )]
+        $ipAddress,
+
+
+        # Site name to check
+        [Parameter(Mandatory)]
+        [string]
+        $siteName
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $ipAddressSite = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        #region Convert possible types to [System.String]
+        if ($ipAddress -is [System.String])
+        {
+            $ipAddressString = $ipAddress;
+        }
+        elseif ($ipAddress -is [Microsoft.DnsClient.Commands.DnsRecord])
+        {
+            $ipAddressString = $ipAddress.IpAddress;
+        }
+        #endregion /Convert possible types to [System.String]
+
+
+        "Checking if IP address '$ipAddressString' is part of the '$siteName' AD site." | Write-IbLogfile | Write-Verbose;
+
+        
+        if ($([System.Net.IPAddress]$ipAddressString).AddressFamily -eq "InterNetwork")
+        {
+            $ipAddressSite = $ipAddressString | Get-IbAdSiteByIpAddress;
+
+
+            if ($ipAddressSite.Name -eq $siteName)
+            {
+                $result = $true;
+            }
+            else
+            {
+                $result = $false;
+            }
+            $noErrors = $true;
+        }
+        else
+        {
+            "Address '$ipAddressString' is IPv6, not supported for check. Returning '$false'." | Write-IbLogfile -severity Warning | Write-Verbose; # Write-Verbose is intended here to reduce noise.
+            $result = $false;
+            $noErrors = $false;
+        }
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdIpInSite.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsForwarderConfiguration.ps1
@@ -4036,7 +4443,7 @@ function Get-IbAdDnsForwarderConfiguration {
 
     
     BEGIN {
-        "Running 'Get-IbAdDnsForwarderConfiguration'." | Write-IbLogfile | Write-Verbose;
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 
     
@@ -4107,7 +4514,7 @@ function Get-IbAdDnsForwarderConfiguration {
 
     
     END {
-        "Finished execution 'Get-IbAdDnsForwarderConfiguration'." | Write-IbLogfile | Write-Verbose;
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 }
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsForwarderConfiguration.ps1
@@ -4277,10 +4684,12 @@ function Get-IbAdDnsServer {
 
         "Getting DNS servers in the '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
 
+
         #region Get list of DNS servers
         [array]$result = Get-IbAdDnsRecord -dnsServer $domain -zoneName $domain -type Ns `
             | ?{$_.HostName -eq "@"} `
             | %{$_.RecordData.NameServer.TrimEnd(".")};
+        $noErrors = $true;
         #endregion /Get list of DNS servers
 
         
@@ -5012,7 +5421,7 @@ class IbDnsServer : IbServer {
 
 
 #region ./_templates/common--main--body.ps1
-$version = "1.2.0.0.release-v1.1.0.6a0bbeb";
+$version = "1.0.11.0.main.41736ff";
 
 
 $dateTime = Get-Date -Format "yyyy-MM-dd_HH-mm-ss";
@@ -5060,8 +5469,9 @@ $params = @{
     processDnsMetrics = $processDnsMetrics;
     processDhcpMetrics = $processDhcpMetrics;
     processGenMetrics = $processGenMetrics;
-    # noSitesCollection = $noSitesCollection;  !!! This is a temporary disabled until Solution Designer is supporting the Sites Topology feature !!!
-    noSitesCollection = $false;
+    noSitesCollection = $noSitesCollection;
+    # ^^ !!! This is a temporary disabled until Solution Designer is supporting the Sites Topology feature !!! ^^
+    # noSitesCollection = $false;
 };
 
 if ($processOneMetricOnly)
