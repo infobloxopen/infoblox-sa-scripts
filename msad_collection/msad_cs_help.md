@@ -3,7 +3,7 @@
 ## SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.0.11.0.main.41736ff
+Version: 1.0.12.0.main.1608b52
 
 This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
 computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  
@@ -124,13 +124,21 @@ PLEASE NOTE - To enable script execution on the server run:
 ## NOTES
 
 The script will collect 27 metrics.
-Each metric is collected separately by a single Powershell function.
+Each metric is collected by a separate Powershell function.
 These functions are included in this script file right after 'param()' keyword.
 Functions have the following name format: 'infoblox_<metric-name>'.
-You should be able to locate it by looking for the string '#region D:\Infoblox\infoblox-ms-collection\src\helpers\public\@@infoblox_collection\dhcp_device_count.ps1' in the
-script file.
 
 Each function in its turn has help section that describes the logic.
+
+Most of DNS-related metrics separated by `int` and `ext` which stand for `internal` and `external` correspondingly.
+By the script design, and in order to ensure 
+correct calculations later, the following statements are true:
+
+    - DNS zone considered as 'external' if more than 30% of records are pointing to non-local IP addresses (non-RFC-1918). Otherwise it's considered as 'internal'.
+ 
+    - DNS server considered as 'external' if it's hosting at least one 'external' DNS zone. Otherwise it's considered as 'internal'.
+ 
+
 
 List of metrics:
 
@@ -160,8 +168,44 @@ List of metrics:
     - gen_active_ip  
     - gen_active_user  
     - gen_site_count  
-    - gen_vendor  
-    - site_entry
+    - gen_vendor
+
+    - site_entry  
+    - site_entry_name  
+    - site_entry_source  
+    - site_entry_notes  
+    - site_entry_dhcp_exclusion_count  
+    - site_entry_dhcp_fo_count  
+    - site_entry_dhcp_lease_count  
+    - site_entry_dhcp_lps  
+    - site_entry_dhcp_option_count  
+    - site_entry_dhcp_range_count  
+    - site_entry_dhcp_range_size  
+    - site_entry_dhcp_reservation_count  
+    - site_entry_dhcp_service_count  
+    - site_entry_dhcp_subnet_count  
+    - site_entry_dhcp_subnet_fo_count  
+    - site_entry_dns_qps  
+    - site_entry_dns_service_count  
+    - site_entry_server_count  
+    - site_entry_subnet_count  
+    - site_entry_user_count  
+
+    - site_all_dhcp_exclusion_count  
+    - site_all_dhcp_lease_count  
+    - site_all_dhcp_option_count  
+    - site_all_dhcp_range_count  
+    - site_all_dhcp_range_size  
+    - site_all_dhcp_reservation_count  
+    - site_all_dhcp_service_count  
+    - site_all_dhcp_subnet_count  
+    - site_all_dns_record_ad_count  
+    - site_all_dns_record_nad_count  
+    - site_all_dns_service_count  
+    - site_all_dns_zone_ad_count  
+    - site_all_dns_zone_nad_count  
+    - site_all_site_all_server_count  
+    - site_all_subnet_count  
 
 
 SUPPORTED PARAMETERS
@@ -185,21 +229,19 @@ In such case, Powershell will print default error message:
         'processDhcpMetrics' and 'processGenMetrics' parameters.
 
     * -processDnsMetrics
-        Switch-type parameter. Specify it to process DNS metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
+        Switch-type parameter. Specify it to process DNS_* metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
 
     * -processDhcpMetrics
-        Switch-type parameter. Specify it to process DHCP metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
+        Switch-type parameter. Specify it to process DHCP_* metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
 
     * -processGenMetrics
-        Switch-type parameter. Specify it to process GEN metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
+        Switch-type parameter. Specify it to process GEN_* metrics only. This parameter is mutually exclusive with 'processOneMetricOnly' parameter.
 
     * -noPrereqCheck
         Switch-type parameter. Specify it to disable pre-requisites check. Might be useful in some rare cases when check function is failing.
 
     * -noSitesCollection
-        Switch-type parameter. Specify it to disable collection SITE_ENTRY_* metrics. According to Solution Designer logic, it's possible to
-        provide sites details through Survey form OR through MSAD collection script, but not both at the same time. Hence, you should specify this
-        flag if you plan to prove sites information in Survey, otherwise - do not specify this flag.
+        Switch-type parameter. Specify it to disable collection SITE_ENTRY_* and SITE_ALL_* metrics.
 
     * -Verbose
         This is default switch-type parameter of Powershell used to enable verbose output to console. Use this to get more detailed information about
