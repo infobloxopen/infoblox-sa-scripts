@@ -2,7 +2,7 @@
 .SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.0.12.0.main.1608b52
+Version: 1.0.13.0.main.114c1bd
 
 This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
 computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  
@@ -492,7 +492,6 @@ function Get-IbCimExceptionCustomErrorMessage {
     param (
         # Value of $_.Exception.MessageId
         [Parameter(Mandatory)]
-        [Microsoft.Management.Infrastructure.CimException]
         $exception
     );
 
@@ -618,7 +617,6 @@ function Get-IbServiceCommandExceptionCustomErrorMessage {
     param (
         # Value of $_.Exception.MessageId
         [Parameter(Mandatory)]
-        [Microsoft.PowerShell.Commands.ServiceCommandException]
         $exception
     );
 
@@ -804,7 +802,25 @@ function New-IbCsErrorMessage {
 
     
     PROCESS {
-        switch ($errorRecord.InvocationInfo.InvocationName)
+        if ($errorRecord.InvocationInfo.InvocationName)
+        {
+            $failedCmdlet = $errorRecord.InvocationInfo.InvocationName;
+        }
+        elseif ($failedString)
+        {
+            $failedCmdlet = $failedString.Split(" ")[0];
+        }
+        elseif ($errorRecord.Exception.SerializedRemoteInvocationInfo.InvocationName)
+        {
+            $failedCmdlet = $errorRecord.Exception.SerializedRemoteInvocationInfo.InvocationName;
+        }
+        else
+        {
+            $failedCmdlet = $errorRecord.FullyQualifiedErrorId.Split(",")[1];
+        }
+
+
+        switch ($failedCmdlet)
         {
             "Resolve-DnsName" {
                 $errorMessage = "Error while trying to resolve '<record>' DNS record.";
@@ -972,15 +988,29 @@ function New-IbCsErrorMessage {
 
 
         #region Handle some specific error types
-        switch ($errorRecord.Exception.GetType().FullName)
+        #region Handle Powershell 7 changes
+        #if ($PSVersionTable.PSVersion -ge [System.Version]"6.0")
+        if ($PSVersionTable.PSVersion -ge [System.Version]"6.0")
+        {
+            $exceptionType = $errorRecord.Exception.SerializedRemoteException.ToString().Split(": ")[0];
+            $exception = $errorRecord.Exception.SerializedRemoteException;
+        }
+        else
+        {
+            $exceptionType = $errorRecord.Exception.GetType().FullName;
+            $exception = $errorRecord.Exception;
+        }
+        #endregion /Handle Powershell 7 changes
+        
+        switch ($exceptionType)
         {
             "Microsoft.Management.Infrastructure.CimException" {
                 $errorMessage += "`n`t";
-                $errorMessage += Get-IbCimExceptionCustomErrorMessage -exception $errorRecord.Exception;
+                $errorMessage += Get-IbCimExceptionCustomErrorMessage -exception $exception;
             }
             "Microsoft.PowerShell.Commands.ServiceCommandException" {
                 $errorMessage += "`n`t";
-                $errorMessage += Get-IbServiceCommandExceptionCustomErrorMessage -exception $errorRecord.Exception;
+                $errorMessage += Get-IbServiceCommandExceptionCustomErrorMessage -exception $exception;
             }
             Default {
                 $additionalDetails = "";
@@ -1223,13 +1253,14 @@ function Resolve-IbDnsRecord {
 
         try
         {
+            $command = {Resolve-DnsName -Name $record}.ToString();
             $result = Resolve-DnsName -Name $record -ErrorAction Stop;
             $noErrors = $true;
         }
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to resolve '$record' DNS record." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
 
@@ -1526,7 +1557,7 @@ function Test-IbServer {
                     $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
                     if ($server.Tcp135Avail)
                     {
-                        if ([System.Version]$PSVersionTable.PSVersion -lt [System.Version]"6.0")
+                        if ($PSVersionTable.PSVersion -lt [System.Version]"6.0")
                         {
                             $server.DnsWindowsServiceAvail = Test-IbWindowsService -server $serverName -dnsService;
                         }
@@ -1662,11 +1693,13 @@ function Test-IbService {
                 {
                     $errorMessageCategory = "ad_dns";
                     # '-WarningAction SilentlyContinue' here is removing the 'EnableRegistryBoot not applicable on DNS Server <server> version.' warnings.
+                    $command = {Get-DnsServer -ComputerName $serverName}.ToString();
                     $result = Get-DnsServer -ComputerName $serverName -ErrorAction Stop -WarningAction SilentlyContinue;
                 }
                 "dhcp"
                 {
                     $errorMessageCategory = "ad_dhcp";
+                    $command = {Get-DhcpServerSetting -ComputerName $serverName}.ToString();
                     $result = Get-DhcpServerSetting -ComputerName $serverName -ErrorAction Stop;
                 }
             }
@@ -1674,7 +1707,7 @@ function Test-IbService {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to make test query to '$serviceName' service on the '$server' machine." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $result = $false;
         }
 
@@ -1719,12 +1752,13 @@ function Test-IbWindowsServer {
         
         try
         {
+            $command = {Resolve-DnsName -Name $server}.ToString();
             $resolveDns = Resolve-DnsName -Name $server -Verbose:$false -ErrorAction Stop;
         }
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to resolve DNS name '$server'." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $result = $false;
         }
 
@@ -1735,13 +1769,14 @@ function Test-IbWindowsServer {
             {
                 $originalProgressPreference = $global:ProgressPreference;
                 $global:ProgressPreference = "SilentlyContinue";
+                $command = {Test-NetConnection -ComputerName $server -Port 135}.ToString();
                 $tcpPing = Test-NetConnection -ComputerName $server -Port 135 -WarningAction SilentlyContinue -ErrorAction Stop;
                 $global:ProgressPreference = $originalProgressPreference;
             }
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to reach '$server' machine on port TCP 135." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $result = $false;
             }
 
@@ -1837,6 +1872,7 @@ function Test-IbWindowsService {
         
         try
         {
+            $command = {Get-Service -Name $serviceName -ComputerName $server}.ToString();
             $serviceStatus = Get-Service -Name $serviceName -ComputerName $server -ErrorAction Stop;
 
             $result = [pscustomobject]@{
@@ -1850,7 +1886,7 @@ function Test-IbWindowsService {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while getting status of the '$serviceName' Windows service from the '$server' machine." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $result = $false;
         }
 
@@ -2122,6 +2158,7 @@ function Get-IbAdComputer {
             {
                 if (Test-IbServer -serverName $domain -serverType default)
                 {
+                    $command = {Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties}.ToString();
                     [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
                     "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
                     $noErrors = $true;
@@ -2135,7 +2172,7 @@ function Get-IbAdComputer {
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get computer objects from AD for '$domain' domain." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
             #endregion /Using Powershell cmdlets
@@ -2205,6 +2242,7 @@ function Get-IbAdDomainController {
         {
             if (Test-IbServer -serverName $domain -serverType default)
             {
+                $command = {Get-ADDomainController @params -Filter "*"}.ToString();
                 [array]$result = Get-ADDomainController @params -Filter "*" -ErrorAction Stop;
                 "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
             }
@@ -2216,7 +2254,7 @@ function Get-IbAdDomainController {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to discover AD domain controller for '$domain' domain." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
         }
         #endregion /Sending request
 
@@ -2263,12 +2301,13 @@ function Get-IbAdForest {
 
         try
         {
+            $command = {Get-ADForest}.ToString();
             $result = Get-ADForest;
             $noErrors = $true;
         }
         catch
         {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
         
@@ -2316,11 +2355,12 @@ function Get-IbAdReplicationLink {
         
         try
         {
+            $command = {Get-ADReplicationSiteLink -Filter *}.ToString();
             $result = Get-ADReplicationSiteLink -Filter * -ErrorAction Stop;
         }
         catch
         {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
         }
 
 
@@ -2399,12 +2439,13 @@ function Get-IbAdSite {
 
         try
         {
+            $command = {Get-ADReplicationSite -Filter $filter}.ToString();
             [array]$result = Get-ADReplicationSite -Filter $filter -ErrorAction Stop;
             $noErrors = $true;
         }
         catch
         {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
 
@@ -2540,12 +2581,13 @@ function Get-IbAdSubnet {
 
         try
         {
+            $command = {Get-ADReplicationSubnet -Filter "*"}.ToString();
             [array]$result = Get-ADReplicationSubnet -Filter "*" -ErrorAction Stop;
             $noErrors = $true;
         }
         catch
         {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
 
@@ -2679,6 +2721,7 @@ function Get-IbAdUser {
             
             if (Test-IbServer -serverName $domain -serverType default)
             {
+                $command = {Get-ADUser @params -Properties $properties}.ToString();
                 [array]$result = Get-ADUser @params -Properties $properties -ErrorAction Stop;
                 "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
             }
@@ -2690,7 +2733,7 @@ function Get-IbAdUser {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while getting users from AD ('$server' domain controller)." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
         }
 
 
@@ -6574,6 +6617,7 @@ function Get-IbAdDnsForwarderConfiguration {
         {
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
+                $command = {Get-DnsServerForwarder -ComputerName $dnsServer}.ToString();
                 $generalForwardingConfig = Get-DnsServerForwarder -ComputerName $dnsServer -ErrorAction Stop;
             }
             else
@@ -6584,7 +6628,7 @@ function Get-IbAdDnsForwarderConfiguration {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get general forwarding configuration for the '$dnsServer' server." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
         }
         #endregion /Get general forwarding configuration
 
@@ -6594,6 +6638,7 @@ function Get-IbAdDnsForwarderConfiguration {
         {
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
+                $command = {Get-DnsServerZone -ComputerName $dnsServer}.ToString();
                 [array]$forwarderZones = Get-DnsServerZone -ComputerName $dnsServer -ErrorAction Stop | ?{$_.ZoneType -eq "Forwarder"};
             }
             else
@@ -6604,7 +6649,7 @@ function Get-IbAdDnsForwarderConfiguration {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get conditional forwarding configuration for the '$dnsServer' server." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
         }
         #endregion /Get conditional forwarding zones
 
@@ -6731,6 +6776,7 @@ function Get-IbAdDnsRecord {
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
                 [array]$result = $params | %{
+                    $command = $ExecutionContext.InvokeCommand.ExpandString({Get-DnsServerResourceRecord @_}.ToString());
                     Get-DnsServerResourceRecord @_ -ErrorAction Stop;
                 };
                 $noErrors = $true;
@@ -6743,7 +6789,7 @@ function Get-IbAdDnsRecord {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get DNS records from DNS server '$dnsServer'" `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $command;
             $noErrors = $false;
         }
         #endregion /Execute 'Get-DnsServerResourceRecord'
@@ -6870,6 +6916,7 @@ function Get-IbAdDnsServerQps {
         {
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
+                $command = {Get-DnsServerStatistics -ComputerName $dnsServer}.ToString();
                 $statistics = Get-DnsServerStatistics -ComputerName $dnsServer -ErrorAction Stop;
                 $noErrors = $true;
             }
@@ -6880,7 +6927,7 @@ function Get-IbAdDnsServerQps {
         }
         catch
         {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
         #endregion /Get statistics object
@@ -6990,6 +7037,7 @@ function Get-IbAdDnsZone {
             "Getting '$($PSCmdlet.ParameterSetName)' zones from the DNS server '$dnsServer'." | Write-IbLogfile | Write-Verbose;
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
+                $command = {Get-DnsServerZone -ComputerName $dnsServer}.ToString();
                 $zones = Get-DnsServerZone -ComputerName $dnsServer -ErrorAction Stop | ?{-not $_.IsAutoCreated -and $_.ZoneType -ne "Forwarder" -and $_.ZoneName -ne "TrustAnchors"};
                 $noErrors = $true;
             }
@@ -7001,7 +7049,7 @@ function Get-IbAdDnsZone {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get zones from DNS server '$dnsServer'." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
         #endregion /Get all zones
@@ -7314,6 +7362,7 @@ function Get-IbAdDhcpExclusion {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv4ExclusionRange -ComputerName $dhcpServer -scopeid $scopeId}.ToString();
                     [array]$ipv4Exclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcpServer -scopeid $scopeId -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -7325,7 +7374,7 @@ function Get-IbAdDhcpExclusion {
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get exclusions ranges from DHCP server '$dhcpServer', '$scopeId' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -7339,6 +7388,7 @@ function Get-IbAdDhcpExclusion {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv6ExclusionRange -ComputerName $dhcpServer -Prefix $scopePrefix}.ToString();
                     [array]$ipv6Exclusions = Get-DhcpServerv6ExclusionRange -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -7350,7 +7400,7 @@ function Get-IbAdDhcpExclusion {
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get reservations from DHCP server '$dhcpServer', '$scopePrefix' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -7430,6 +7480,7 @@ function Get-IbAdDhcpFailoverConfig {
         {
             if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
             {
+                $command = {Get-DhcpServerv4Failover -ComputerName $dhcpServer}.ToString();
                 $result = Get-DhcpServerv4Failover -ComputerName $dhcpServer -ErrorAction Stop;
                 $noErrors = $true;
             }
@@ -7442,7 +7493,7 @@ function Get-IbAdDhcpFailoverConfig {
         {
             $_ | New-IbCsErrorMessage `
                 -customErrorMessage "Error while trying to get failover relationships from DHCP server '$dhcpServer'." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
 
@@ -7534,6 +7585,7 @@ function Get-IbAdDhcpOption {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv4OptionValue -ComputerName $dhcpServer -ScopeId $scopeId -All}.ToString();
                     $options = Get-DhcpServerv4OptionValue -ComputerName $dhcpServer -ScopeId $scopeId -All -ErrorAction Stop;
                     $options | %{ $_ | Add-Member -MemberType NoteProperty -Name "ScopeId" -Value $scopeId; };
                     $options = $options | ?{$_.OptionId -ne 51};
@@ -7548,7 +7600,7 @@ function Get-IbAdDhcpOption {
             {
                 $_ | New-IbCsErrorMessage `
                     -customErrorMessage "Error while trying to get DHCP options from DHCP server '$dhcpServer', '$scopeId' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -7563,6 +7615,7 @@ function Get-IbAdDhcpOption {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv6OptionValue -ComputerName $dhcpServer -Prefix $scopePrefix -All}.ToString();
                     $options = Get-DhcpServerv6OptionValue -ComputerName $dhcpServer -Prefix $scopePrefix -All -ErrorAction Stop;
                     $options | %{ $_ | Add-Member -MemberType NoteProperty -Name "ScopePrefix" -Value $scopePrefix; };
                     $options = $options | ?{$_.OptionId -ne 39};
@@ -7577,7 +7630,7 @@ function Get-IbAdDhcpOption {
             {
                 $_ | New-IbCsErrorMessage `
                     -customErrorMessage "Error while trying to get DHCP options from DHCP server '$dhcpServer', '$scopePrefix' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -7596,6 +7649,7 @@ function Get-IbAdDhcpOption {
                 {
                     if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                     {
+                        $command = {Get-DhcpServerv4OptionValue -ComputerName $dhcpServer -ReservedIP $reservedIp -All}.ToString();
                         $options = Get-DhcpServerv4OptionValue -ComputerName $dhcpServer -ReservedIP $reservedIp -All -ErrorAction Stop;
                         $options = $options | ?{$_.OptionId -ne 51};
                         $noErrors = $true;
@@ -7609,7 +7663,7 @@ function Get-IbAdDhcpOption {
                 {
                     $_ | New-IbCsErrorMessage `
                         -customErrorMessage "Error while trying to get DHCP options from DHCP server '$dhcpServer', '$scopeId' scope." `
-                        -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                        -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                     $noErrors = $false;
                 }
             }
@@ -7621,6 +7675,7 @@ function Get-IbAdDhcpOption {
                 {
                     if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                     {
+                        $command = {Get-DhcpServerv6OptionValue -ComputerName $dhcpServer -ReservedIP $reservedIp -All}.ToString();
                         $options = Get-DhcpServerv6OptionValue -ComputerName $dhcpServer -ReservedIP $reservedIp -All -ErrorAction Stop;
                         $options = $options | ?{$_.OptionId -ne 39};
                         $noErrors = $true;
@@ -7634,7 +7689,7 @@ function Get-IbAdDhcpOption {
                 {
                     $_ | New-IbCsErrorMessage `
                         -customErrorMessage "Error while trying to get DHCP options from DHCP server '$dhcpServer', '$scopePrefix' scope." `
-                        -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                        -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                     $noErrors = $false;
                 }
             }
@@ -7727,8 +7782,8 @@ function Get-IbAdDhcpReservation {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv4Reservation -ComputerName $dhcpServer -scopeid $scopeId}.ToString();
                     [array]$ipv4Reservations = Get-DhcpServerv4Reservation -ComputerName $dhcpServer -scopeid $scopeId -ErrorAction Stop;
-                    # $ipv4Reservations | %{ $_ | Add-Member -MemberType NoteProperty -Name "ScopeId" -Value $scopeId; };
                     $noErrors = $true;
                 }
                 else
@@ -7739,7 +7794,7 @@ function Get-IbAdDhcpReservation {
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get reservations from DHCP server '$dhcpServer', '$scopeId' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -7753,8 +7808,8 @@ function Get-IbAdDhcpReservation {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv6Reservation -ComputerName $dhcpServer -Prefix $scopePrefix}.ToString();
                     [array]$ipv6Reservations = Get-DhcpServerv6Reservation -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
-                    # $ipv6Reservations | %{ $_ | Add-Member -MemberType NoteProperty -Name "ScopePrefix" -Value $scopePrefix; };
                     $noErrors = $true;
                 }
                 else
@@ -7765,7 +7820,7 @@ function Get-IbAdDhcpReservation {
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get reservations from DHCP server '$dhcpServer', '$scopePrefix' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -7885,7 +7940,10 @@ function Get-IbAdDhcpScope {
             "Getting scopes from the DHCP server '$dhcpServer'." | Write-IbLogfile | Write-Verbose;
             if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
             {
+                $command = {Get-DhcpServerv4Scope -ComputerName $dhcpServer}.ToString();
                 $ipv4Scopes = Get-DhcpServerv4Scope -ComputerName $dhcpServer -ErrorAction Stop;
+                
+                $command = {Get-DhcpServerv6Scope -ComputerName $dhcpServer}.ToString();
                 $ipv6Scopes = Get-DhcpServerv6Scope -ComputerName $dhcpServer -ErrorAction Stop;
                 $noErrors = $true;
             }
@@ -7897,7 +7955,7 @@ function Get-IbAdDhcpScope {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get scopes from DHCP server '$dhcpServer'." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
         #endregion /Get all scopes
@@ -8041,6 +8099,7 @@ function Get-IbAdDhcpScopeSize {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv4ScopeStatistics -ComputerName $dhcpServer -ScopeId $scopeId}.ToString();
                     $scopeStatistics = Get-DhcpServerv4ScopeStatistics -ComputerName $dhcpServer -ScopeId $scopeId -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -8053,7 +8112,7 @@ function Get-IbAdDhcpScopeSize {
             {
                 $_ | New-IbCsErrorMessage `
                     -customErrorMessage "Error while trying to get scope statistics from DHCP server '$dhcpServer', '$scopeId' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -8068,6 +8127,7 @@ function Get-IbAdDhcpScopeSize {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv6ScopeStatistics -ComputerName $dhcpServer -Prefix $scopePrefix}.ToString();
                     $scopeStatistics = Get-DhcpServerv6ScopeStatistics -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -8080,7 +8140,7 @@ function Get-IbAdDhcpScopeSize {
             {
                 $_ | New-IbCsErrorMessage `
                     -customErrorMessage "Error while trying to get scope statistics from DHCP server '$dhcpServer', '$scopePrefix' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -8144,6 +8204,7 @@ function Get-IbAdDhcpServer {
         
         try
         {
+            $command = {Get-DhcpServerInDC}.ToString();
             [array]$result = Get-DhcpServerInDC -ErrorAction Stop | Select-Object -ExpandProperty DnsName | Select-Object -Unique;
             $noErrors = $true;
 
@@ -8151,7 +8212,7 @@ function Get-IbAdDhcpServer {
         }
         catch
         {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
             $noErrors = $false;
         }
 
@@ -8224,6 +8285,7 @@ function Get-IbAdDhcpServerLease {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv4Lease -ComputerName $dhcpServer -scopeid $scopeId}.ToString();
                     [array]$leases = Get-DhcpServerv4Lease -ComputerName $dhcpServer -scopeid $scopeId -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -8235,7 +8297,7 @@ function Get-IbAdDhcpServerLease {
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get leases from DHCP server '$dhcpServer', '$scopeId' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -8249,6 +8311,7 @@ function Get-IbAdDhcpServerLease {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
+                    $command = {Get-DhcpServerv6Lease -ComputerName $dhcpServer -Prefix $scopePrefix}.ToString();
                     [array]$leases = Get-DhcpServerv6Lease -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -8260,7 +8323,7 @@ function Get-IbAdDhcpServerLease {
             catch
             {
                 $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get leases from DHCP server '$dhcpServer', '$scopePrefix' scope." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
                 $noErrors = $false;
             }
         }
@@ -8331,6 +8394,7 @@ function Get-IbAdDhcpServerLps {
 
             if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
             {
+                $command = {Get-DhcpServerv4Statistics -ComputerName $dhcpServer}.ToString();
                 $ipv4Stats = Get-DhcpServerv4Statistics -ComputerName $dhcpServer -ErrorAction Stop;
             }
             else
@@ -8341,7 +8405,7 @@ function Get-IbAdDhcpServerLps {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get DHCP server IPv4 statistics from the server '$dhcpServer'." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
         }
         #endregion /Getting IPv4 statistics
 
@@ -8353,6 +8417,7 @@ function Get-IbAdDhcpServerLps {
                 
             if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
             {
+                $command = {Get-DhcpServerv6Statistics -ComputerName $dhcpServer}.ToString();
                 $ipv6Stats = Get-DhcpServerv6Statistics -ComputerName $dhcpServer -ErrorAction Stop;
             }
             else
@@ -8363,7 +8428,7 @@ function Get-IbAdDhcpServerLps {
         catch
         {
             $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get DHCP server IPv6 statistics from the server '$dhcpServer'." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($_.invocationInfo.Line);
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
         }
         #endregion /Getting IPv6 statistics
         #endregion /Getting DHCP server statistics
@@ -8526,7 +8591,7 @@ class IbDnsServer : IbServer {
 
 
 #region ./_templates/common--main--body.ps1
-$version = "1.0.12.0.main.1608b52";
+$version = "1.0.13.0.main.114c1bd";
 
 
 $dateTime = Get-Date -Format "yyyy-MM-dd_HH-mm-ss";
