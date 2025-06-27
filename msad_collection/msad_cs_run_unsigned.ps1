@@ -2,7 +2,7 @@
 .SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.0.13.0.main.114c1bd
+Version: 1.1.1.0.main.84bb2f8
 
 This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
 computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  
@@ -107,7 +107,7 @@ PLEASE NOTE - To enable script execution on the server run:
 
 .NOTES
 
-The script will collect 27 metrics. Each metric is collected by a separate Powershell function.
+The script will collect 62 metrics. Each metric is collected by a separate Powershell function.
 These functions are included in this script file right after 'param()' keyword. Functions have the following name format: 'infoblox_<metric-name>'.
 
 Each function in its turn has help section that describes the logic.
@@ -127,23 +127,24 @@ List of metrics:
     - dhcp_server_count  
     - dhcp_subnet_count  
     - dhcp_vendor  
-    - dns_ext_dnssec_used  
-    - dns_ext_forward_zone_count  
-    - dns_ext_ipv6_used  
-    - dns_ext_qps  
-    - dns_ext_record_count  
-    - dns_ext_reverse_zone_count  
-    - dns_ext_server_count  
-    - dns_int_ad_domain_count  
-    - dns_int_caching_forwarders  
-    - dns_int_dnssec_used  
-    - dns_int_forward_zone_count  
-    - dns_int_ipv6_used  
-    - dns_int_qps  
-    - dns_int_record_count  
-    - dns_int_reverse_zone_count  
-    - dns_int_server_count  
-    - dns_int_vendor  
+    - dns_ad_domain_count  
+    - dns_caching_forwarders  
+    - dns_forward_zone_count  
+    - dns_qps  
+    - dns_record_count  
+    - dns_record_a_count  
+    - dns_record_ptr_count  
+    - dns_record_aaaa_count  
+    - dns_record_txt_count  
+    - dns_record_cname_count  
+    - dns_record_mx_count  
+    - dns_record_ns_count  
+    - dns_record_srv_count  
+    - dns_reverse_zone_count  
+    - dns_zone_dnssec_signed_count  
+    - dns_external_record_count  
+    - dns_server_count  
+    - dns_vendor  
     - gen_active_ip  
     - gen_active_user  
     - gen_site_count  
@@ -297,2802 +298,884 @@ param (
 
 
 #region ./src/helpers/public/
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Compare-IbHashtable.ps1
-function Compare-IbHashtable {
-    [CmdletBinding()]
-    param (
-        # Hashtable 1
-        [Parameter(Mandatory)]
-        [hashtable]
-        $item1,
-
-        # Hashtable 2
-        [Parameter(Mandatory)]
-        [hashtable]
-        $item2
-    );
-
-    
-    BEGIN {}
-
-    
-    PROCESS {
-        $result = $true;
-
-
-        #region Compare existense of keys
-        foreach ($key in $item1.Keys)
-        {
-            if ($key -notin $item2.Keys)
-            {
-                return $false;
-            }
-        }
-        foreach ($key in $item2.Keys)
-        {
-            if ($key -notin $item1.Keys)
-            {
-                return $false;
-            }
-        }
-        #endregion /Compare existense of keys
-
-
-        foreach ($key in $item1.Keys)
-        {
-            if ($item1[$key] -is [hashtable] -and $item2[$key] -is [hashtable])
-            {
-                if (-not (Compare-IbHashtable -item1 $item1[$key] -item2 $item2[$key]))
-                {
-                    $result = $false;
-                }
-            }
-            elseif ($item1[$key] -is [PSCustomObject] -and $item2[$key] -is [PSCustomObject])
-            {
-                $hash1 = @{}; $item1[$key].psobject.properties | %{ $hash1[$_.Name] = $_.Value };
-                $hash2 = @{}; $item2[$key].psobject.properties | %{ $hash2[$_.Name] = $_.Value };
-                if (-not (Compare-IbHashtable -item1 $hash1 -item2 $hash2))
-                {
-                    $result = $false;
-                }
-            }
-            elseif ($item1[$key].GetType() -ne $item2[$key].GetType() -or $item1[$key] -ne $item2[$key])
-            {
-                $result = $false;
-            }
-        }
-
-
-        return $result;
-    }
-
-    
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Compare-IbHashtable.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Convert-IbSubnetMask.ps1
-function Convert-IbSubnetMask
-{
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ad_domain_count.ps1
+function infoblox_dns_ad_domain_count {
     <#
-        .SYNOPSIS
-        Convert a subnet mask to CIDR and vise versa
-
-        .DESCRIPTION
-        Convert a subnetmask like 255.255.255 to cidr (/24) and vise versa.
-                    
-        .EXAMPLE
-        Convert-IbSubnetMask -cidr 24
-
-        mask          cidr
-        ----          ----
-        255.255.255.0   24
-
-        .EXAMPLE
-        Convert-IbSubnetMask -mask 255.255.0.0
-
-        mask        cidr
-        ----        ----
-        255.255.0.0   16
+    .DESCRIPTION
+        The function will return number AD domains in the forest.
     #>
 
-    [CmdLetBinding(DefaultParameterSetName = "cidr")]
-    param( 
-        [Parameter(Mandatory, ParameterSetName = "cidr")]
-        [ValidateRange(0, 32)]
-        [int]$cidr,
-
-        [Parameter(Mandatory, ParameterSetName = "mask")]
-        [ValidateScript({
-            if ($_ -match "^(254|252|248|240|224|192|128).0.0.0$|^255.(254|252|248|240|224|192|128|0).0.0$|^255.255.(254|252|248|240|224|192|128|0).0$|^255.255.255.(255|254|252|248|240|224|192|128|0)$")
-            { return $true } else { throw "Enter a valid subnetmask (like 255.255.255.0)."; }
-        })]
-        [string]$mask
-    );
-
-    BEGIN {}
-
-
-    PROCESS {
-        switch($PSCmdlet.ParameterSetName)
-        {
-            "cidr" {                          
-                # Make a string of bits (24 to 11111111111111111111111100000000)
-                $cidr_Bits = ("1" * $cidr).PadRight(32, "0");
-                
-                # Split into groups of 8 bits, convert to Ints, join up into a string
-                $Octets = $cidr_Bits -split "(.{8})" -ne "";
-                $mask = ($Octets | %{[Convert]::ToInt32($_, 2)}) -join ".";
-            }
-
-            "mask" {
-                # Convert the numbers into 8 bit blocks, join them all together, count the 1
-                $Octets = $mask.ToString().Split(".") | %{[Convert]::ToString($_, 2)};
-                $cidr_Bits = ($Octets -join "").TrimEnd("0");
-
-                # Count the "1" (111111111111111111111111 --> /24)                     
-                $cidr = $cidr_Bits.Length;
-            }               
-        }
-
-        
-        $result = [pscustomobject]@{
-            mask = $mask;
-            cidr = $cidr;
-        };
-
-        return $result;
-    }
-
-
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Convert-IbSubnetMask.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Export-IbCsv.ps1
-function Export-IbCsv {
     [CmdletBinding()]
-    param (
-        # Array of arrays to export
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [hashtable]
-        $item,
-
-
-        [Parameter()]
-        [string]
-        $separator = ","
-    );
-    
-    
-    BEGIN {}
-
-    
-    PROCESS {
-        $value = $item.Keys | ?{$_ -ne "key"} | %{$item[$_]} | ?{$_ -ne $null};
-        $csvString = @(
-            $item["key"],
-            $value.ToString().replace(",", ".")
-        ) -join $separator;
-        
-        Add-Content -Path $env:INFOBLOX_SE_CSVPATH -Value $csvString;
-    }
+    param ();
     
 
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Export-IbCsv.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
-function Get-IbCimExceptionCustomErrorMessage {
-    [CmdletBinding()]
-    param (
-        # Value of $_.Exception.MessageId
-        [Parameter(Mandatory)]
-        $exception
-    );
-
-    
-    BEGIN {}
-
-    
-    PROCESS {
-        #region Reset variables
-        $defaultText,
-        $result = $null;
-        #endregion /Reset variables
-
-        
-        $defaultText = "[Microsoft.Management.Infrastructure.CimException]`n`t"
-        $defaultText += "Error code: '$($exception.MessageId)'. ";
-        $defaultText += $exception.ErrorData.CimInstanceProperties | ?{$_.name -eq "error_WindowsErrorMessage"} | Select-Object -ExpandProperty Value;
-        $defaultText += "`n`t";
-
-        switch ($exception.MessageId)
-        {
-            "WIN32 4"       { $result = $defaultText + "The issue could be on local computer or remote server. Too many opened files in the system, hence request cannot be completed."; }
-            "WIN32 5"       { $result = $defaultText + "Current user does not have permissions to read from the server. This error also may appear if the local computer is unable to reach remote server on port TCP 135."; }
-            "WIN32 1721"    { $result = $defaultText + "Most likely the server or local computer does not have free resources (usually - memory) to process the request."; }
-            "WIN32 1722"    { $result = $defaultText + "Most likely the server is turned off or not accessible through network."; }
-            "WIN32 1723"    { $result = $defaultText + "Most likely the server is experiencing heavy load."; }
-            "DHCP 20070"    { $result = $defaultText + "Powershell module could not connect to any AD controller."; }
-            Default         { $result = $defaultText + "--- No detailed explanation ---"; }
-        }
-
-        return $result;
-    }
-
-    
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbInnerExceptionMessage.ps1
-function Get-IbInnerExceptionMessage {
-    param (
-        [Parameter(Mandatory)]
-        [System.Exception]
-        $exception,
-
-        [Parameter()]
-        [string]
-        $separator = "`n`t* "
-    );
-
-
-    $message = "* " + $exception.Message;
-
-    if ($exception.InnerException)
-    {
-        $message += $separator + $(Get-IbInnerExceptionMessage -Exception $exception.InnerException);
-    }
-
-
-    return $message;
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbInnerExceptionMessage.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbNetworkUsableIpAddressCount.ps1
-function Get-IbNetworkUsableIpAddressCount {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $cidr
-    );
-
-    
     BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_ad_domain_count'." | Write-IbLogfile | Write-Verbose;
     }
-
     
-    PROCESS {
-        $subnet,
-        $totalAddresses,
-        $usableAddresses = $null;
 
-
-        "Calculating count of usable IPv4 addresses in '$cidr' network." | Write-IbLogfile | Write-Verbose;
-
-
-        if ($cidr -notmatch "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}\b")
-        {
-            Write-Error "Invalid CIDR notation. Please provide a valid CIDR notation." | Write-IbLogfile -severity Error | Write-Error;
-            return $usableAddresses;
-        }
-        else
-        {
-            $subnet = $cidr.Split('/')[-1];
-            $totalAddresses = [math]::Pow(2, (32 - $subnet));
-            $usableAddresses = $totalAddresses - 2;
-            if ($usableAddresses -lt 0)
-            {
-                $usableAddresses = 0;
-            }
-    
-            "Calculated number: $usableAddresses." | Write-IbLogfile | Write-Verbose;
-        }
-
-
-        return $usableAddresses;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbNetworkUsableIpAddressCount.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbServiceCommandExceptionCustomErrorMessage.ps1
-function Get-IbServiceCommandExceptionCustomErrorMessage {
-    [CmdletBinding()]
-    param (
-        # Value of $_.Exception.MessageId
-        [Parameter(Mandatory)]
-        $exception
-    );
-
-    
-    BEGIN {}
-
-    
-    PROCESS {
-        $defaultText = "[Microsoft.PowerShell.Commands.ServiceCommandException]`n`t";
-
-        switch ($exception.HResult)
-        {
-            -2146233087     { $result = $defaultText + "The issue could also appear if the remote server is turned off or not reachable through network. Also may occure if the user does not access to the server."; }
-            Default         { $result = $defaultText + "--- No detailed explanation ---"; }
-        }
-
-        
-        return $result;
-    }
-
-    
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbServiceCommandExceptionCustomErrorMessage.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbStringMd5.ps1
-function Get-IbStringMd5 {
-    [CmdletBinding()]
-    param (
-        # A string to get hash for
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $string
-    );
-
-    
-    BEGIN {}
-
-    
     PROCESS {
         $result = $null;
 
-        $md5 = New-Object -TypeName "System.Security.Cryptography.MD5CryptoServiceProvider";
-        $utf8 = New-Object -TypeName "System.Text.UTF8Encoding";
-        $result = [System.BitConverter]::ToString($md5.ComputeHash($utf8.GetBytes($string))).Replace("-","").ToLower();
 
-        return $result;
-    }
-
-    
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbStringMd5.ps1
+        [array]$result = (Get-IbAdForest).Domains;
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbCsvfilePath.ps1
-function Initialize-IbCsvfilePath {
-    [CmdletBinding()]
-    param (
-        # Csv file name
-        [Parameter(Mandatory)]
-        [string]
-        $fileName
-    );
-
-    
-    $csvPath = "./@output";
-
-
-    #region Create path to the log file if it doesn't exist
-    if (-not $(Test-Path -Path "$csvPath/$fileName"))
-    {
-        New-Item -Path "$csvPath/$fileName" -Force | Out-Null;
-    }
-    #endregion /Create path to the log file if it doesn't exist
-
-
-    Write-Verbose "Setting environment variable 'INFOBLOX_SE_CSVPATH = $csvPath/$fileName' to store CSV file path.";
-    Set-Item -Path "env:INFOBLOX_SE_CSVPATH" -Value "$csvPath/$fileName";
-
-
-    $result = "$csvPath/$fileName";
-
-
-    return $result;
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbCsvfilePath.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbGlobalVariables.ps1
-function Initialize-IbGlobalVariables {
-    [CmdletBinding()]
-    param (
-        
-    );
-
-    
-    "Initializing global variables." | Write-Verbose;
-
-    $global:infoblox_errors = @();
-    $global:infoblox_servers = @();
-    $global:infoblox_cache = [System.Collections.ArrayList]::new();
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbGlobalVariables.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbLogfilePath.ps1
-function Initialize-IbLogfilePath {
-    [CmdletBinding()]
-    param (
-        [Parameter()]
-        [string]
-        $fileName,
-
-        [Parameter()]
-        [switch]
-        $powershellTranscript
-    );
-
-
-    $logPath = "./@logs"
-
-
-    if (-not $fileName)
-    {
-        $fileName = "{0}.log" -f $(Get-Date -Format "yyyy-MM-dd_HH-mm-ss");
-    }
-
-
-    $path = Join-Path -Path $logPath -ChildPath $fileName;
-
-
-    if (-not $powershellTranscript)
-    {
-        #region Create path to the log file if it doesn't exist
-        if (-not $(Test-Path -Path $path))
-        {
-            New-Item -Path $path -Force | Out-Null;
-        }
-        #endregion /Create path to the log file if it doesn't exist
-    
-        Write-Verbose "Setting environment variable 'INFOBLOX_SE_LOGPATH = $path' to store log file path.";
-        Set-Item -Path "env:INFOBLOX_SE_LOGPATH" -Value $path;
-    
-        Write-Verbose "Writing init record into log file.";
-        Write-IbLogfile "Log file initialized." -noOutput;
-    }
-    else
-    {
-        Write-Verbose "Setting environment variable 'INFOBLOX_PWSH_TRANSCRIPT_PATH = $path' to store Powershell transcript path.";
-        Set-Item -Path "env:INFOBLOX_PWSH_TRANSCRIPT_PATH" -Value $path;
-    }
-
-
-    return $path;
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbLogfilePath.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsErrorMessage.ps1
-function New-IbCsErrorMessage {
-    [CmdletBinding()]
-    param (
-        # Error record for the failed cmdlet
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [System.Management.Automation.ErrorRecord]
-        $errorRecord,
-
-        # Failed cmdlet with parameters
-        [Parameter()]
-        [string]
-        $failedString,
-
-        # Custom error message to put as the first string in the record
-        [Parameter()]
-        [string]
-        $customErrorMessage
-    );
-
-    
-    BEGIN {}
-
-    
-    PROCESS {
-        if ($errorRecord.InvocationInfo.InvocationName)
-        {
-            $failedCmdlet = $errorRecord.InvocationInfo.InvocationName;
-        }
-        elseif ($failedString)
-        {
-            $failedCmdlet = $failedString.Split(" ")[0];
-        }
-        elseif ($errorRecord.Exception.SerializedRemoteInvocationInfo.InvocationName)
-        {
-            $failedCmdlet = $errorRecord.Exception.SerializedRemoteInvocationInfo.InvocationName;
-        }
-        else
-        {
-            $failedCmdlet = $errorRecord.FullyQualifiedErrorId.Split(",")[1];
-        }
-
-
-        switch ($failedCmdlet)
-        {
-            "Resolve-DnsName" {
-                $errorMessage = "Error while trying to resolve '<record>' DNS record.";
-                $errorCategory = "common";
-            }
-            "Get-Service" {
-                $errorMessage = "Error while getting status of the '<serviceName>' Windows service from the '<server>' machine.";
-                $errorCategory = "common";
-            }
-            "Test-NetConnection" {
-                $errorMessage = "Error while trying to reach '<server>' machine on port TCP 135.";
-                $errorCategory = "common";
-            }
-            "Get-DnsServer" {
-                $errorMessage = "Error while trying to get DNS server object from the server '<server>'.";
-                $errorCategory = "ad_dns";
-            }
-            "Get-DhcpServerSetting" {
-                $errorMessage = "Error while trying to get DHCP server settings from the server '<server>'.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-ADUser" {
-                $errorMessage = "Error while getting users from AD ('<server>' domain controller).";
-                $errorCategory = "ad_common";
-            }
-            "Get-ADReplicationSubnet" {
-                $errorMessage = "Error while trying to get AD replication subnets from the current AD forest.";
-                $errorCategory = "ad_common";
-            }
-            "Get-ADDomainController" {
-                $errorMessage = "Error while trying to discover AD domain controller for '<domain>' domain.";
-                $errorCategory = "ad_common";
-            }
-            "Get-ADComputer" {
-                $errorMessage = "Error while trying to get computer objects from AD for '<domain>' domain.";
-                $errorCategory = "ad_common";
-            }
-            "Get-DhcpServerv4Statistics" {
-                $errorMessage = "Error while trying to get DHCP server IPv4 statistics from the server '<server>'.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv6Statistics" {
-                $errorMessage = "Error while trying to get DHCP server IPv6 statistics from the server '<server>'.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv4OptionValue" {
-                $errorMessage = "Error while trying to get DHCP options from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv6OptionValue" {
-                $errorMessage = "Error while trying to get DHCP options from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv4Reservation" {
-                $errorMessage = "Error while trying to get reservations from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv6Reservation" {
-                $errorMessage = "Error while trying to get reservations from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv4ExclusionRange" {
-                $errorMessage = "Error while trying to get exclusions ranges from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv6ExclusionRange" {
-                $errorMessage = "Error while trying to get exclusions ranges from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv4ScopeStatistics" {
-                $errorMessage = "Error while trying to get scope statistics from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv6ScopeStatistics" {
-                $errorMessage = "Error while trying to get scope statistics from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv4Lease" {
-                $errorMessage = "Error while trying to get leases from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv6Lease" {
-                $errorMessage = "Error while trying to get leases from DHCP server '<server>', '<scope>' scope.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerInDC" {
-                $errorMessage = "Error while trying to get the list of DHCP servers from AD.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv4Scope" {
-                $errorMessage = "Error while trying to get scopes from DHCP server '<server>'.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DhcpServerv6Scope" {
-                $errorMessage = "Error while trying to get scopes from DHCP server '<server>'.";
-                $errorCategory = "ad_dhcp";
-            }
-            "Get-DnsServerStatistics" {
-                $errorMessage = "Error while trying to get DNS server statistics.";
-                $errorCategory = "ad_dns";
-            }
-            "Get-DnsServerResourceRecord" {
-                $errorMessage = "Error while trying to get DNS records from DNS server '<server>'.";
-                $errorCategory = "ad_dns";
-            }
-            "Get-DnsServerZone" {
-                $errorMessage = "Error while trying to get zones from DNS server '<server>'.";
-                $errorCategory = "ad_dns";
-            }
-            "Get-ADForest" {
-                $errorMessage = "Error while trying to get AD Forest details.";
-                $errorCategory = "ad_common";
-            }
-            "Get-DnsServerZone" {
-                $errorMessage = "Error while trying to get DNS zone '<zone>' from the '<server>' server.";
-                $errorCategory = "ad_dns";
-            }
-            "Get-DnsServerForwarder" {
-                $errorMessage = "Error while trying to get general forwarding configuration for the '<server>' server.";
-                $errorCategory = "ad_dns";
-            }
-            "Get-ADReplicationSiteLink" {
-                $errorMessage = "Error while trying to get AD replication link from the current AD forest.";
-                $errorCategory = "ad_common";
-            }
-            "Get-ADReplicationSite" {
-                $errorMessage = "Error while trying to get AD sites from the current AD forest.";
-                $errorCategory = "ad_common";
-            }
-            "Get-DhcpServerv4Failover" {
-                $errorMessage = "Error while trying to get failover relationships from DHCP server '<server>'."
-                $errorCategory = "ad_dhcp";
-            }
-            #region Default
-            "Get-Content" { # This one is for unit tests
-                $errorMessage = "Test error message.";
-                $errorCategory = "unit_test";
-            }
-            Default {
-                $errorMessage = "[!!!] Cmdlet '$($errorRecord.InvocationInfo.InvocationName)' doesn't have custom error message specified. [/!!!]";
-                $errorCategory = "empty_category";
-            }
-            #endregion /Default
-        }
-
-
-        #region If custom error message was provided
-        if ($customErrorMessage)
-        {
-            $errorMessage = $customErrorMessage;
-        }
-        #endregion /If custom error message was provided
-
-
-        #region Inject $failedString into error message
-        if ($failedString)
-        {
-            $failedString = $failedString -replace "\s*= ";
-            $failedString = $failedString.Replace(";", "");
-            $failedString = $failedString.Replace("`n", "");
-            $errorMessage += "`n`t";
-            $errorMessage += "Failed cmlet: '$failedString'.";
-        }
-        #endregion /Inject $failedString into error message
-
-
-        #region Handle some specific error types
-        #region Handle Powershell 7 changes
-        #if ($PSVersionTable.PSVersion -ge [System.Version]"6.0")
-        if ($PSVersionTable.PSVersion -ge [System.Version]"6.0")
-        {
-            $exceptionType = $errorRecord.Exception.SerializedRemoteException.ToString().Split(": ")[0];
-            $exception = $errorRecord.Exception.SerializedRemoteException;
-        }
-        else
-        {
-            $exceptionType = $errorRecord.Exception.GetType().FullName;
-            $exception = $errorRecord.Exception;
-        }
-        #endregion /Handle Powershell 7 changes
-        
-        switch ($exceptionType)
-        {
-            "Microsoft.Management.Infrastructure.CimException" {
-                $errorMessage += "`n`t";
-                $errorMessage += Get-IbCimExceptionCustomErrorMessage -exception $exception;
-            }
-            "Microsoft.PowerShell.Commands.ServiceCommandException" {
-                $errorMessage += "`n`t";
-                $errorMessage += Get-IbServiceCommandExceptionCustomErrorMessage -exception $exception;
-            }
-            Default {
-                $additionalDetails = "";
-            }
-        }
-        #endregion /Handle some specific error types
-
-
-        $global:infoblox_errors += [pscustomobject]@{
-            category = $errorCategory;
-            message = $errorRecord.Exception.Message;
-            invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length - 1)].command -join " -> ";
+        return @{
+            key = "dns_ad_domain_count";
+            value = $result.count;
         };
-        
-        "{0}`n`t{1}{2}`n`t{3}`n`t{4}" -f `
-            $errorMessage, `
-            $(Get-IbInnerExceptionMessage -exception $errorRecord.Exception), `
-            $additionalDetails, `
-            $((Get-PSCallStack)[-1 .. -((Get-PSCallStack).length - 1)].command -join " -> ").ToString(), `
-            $errorRecord.InvocationInfo.PositionMessage `
-        | Write-IbLogfile -severity Error | Write-Error;
     }
-
     
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsErrorMessage.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsMetricsList.ps1
-function New-IbCsMetricsList {
-    [CmdletBinding()]
-    param (
-        # Process one metric, if specified
-        [Parameter()]
-        [ValidateNotNullOrEmpty()]
-        [string]
-        $customMetricName,
-
-        # Process DNS metrics
-        [Parameter()]
-        [switch]
-        $processDnsMetrics,
-
-        # Process DHCP metrics
-        [Parameter()]
-        [switch]
-        $processDhcpMetrics,
-
-        # Process GEN metrics
-        [Parameter()]
-        [switch]
-        $processGenMetrics,
-
-        # Disable collection of Sites and Services data
-        [Parameter()]
-        [switch]
-        $noSitesCollection
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-
-        $defaultMetricsToProcess = @(
-            "dhcp_device_count"
-            "dhcp_lease_time"
-            "dhcp_lps"
-            "dhcp_server_count"
-            "dhcp_subnet_count"
-            "dhcp_vendor"
-            "dns_ext_dnssec_used"
-            "dns_ext_forward_zone_count"
-            "dns_ext_ipv6_used"
-            "dns_ext_qps"
-            "dns_ext_record_count"
-            "dns_ext_reverse_zone_count"
-            "dns_ext_server_count"
-            "dns_int_ad_domain_count"
-            "dns_int_caching_forwarders"
-            "dns_int_dnssec_used"
-            "dns_int_forward_zone_count"
-            "dns_int_ipv6_used"
-            "dns_int_qps"
-            "dns_int_record_count"
-            "dns_int_reverse_zone_count"
-            "dns_int_server_count"
-            "dns_int_vendor"
-            "gen_active_ip"
-            "gen_active_user"
-            "gen_site_count"
-            "gen_vendor"
-            
-            "site_entry_name"
-            "site_entry_source"
-            "site_entry_notes"
-            "site_entry_dhcp_exclusion_count"
-            "site_entry_dhcp_fo_count"
-            "site_entry_dhcp_lease_count"
-            "site_entry_dhcp_lps"
-            "site_entry_dhcp_option_count"
-            "site_entry_dhcp_range_count"
-            "site_entry_dhcp_range_size"
-            "site_entry_dhcp_reservation_count"
-            "site_entry_dhcp_service_count"
-            "site_entry_dhcp_subnet_count"
-            "site_entry_dhcp_subnet_fo_count"
-            "site_entry_dns_qps"
-            "site_entry_dns_service_count"
-            "site_entry_server_count"
-            "site_entry_subnet_count"
-            "site_entry_user_count"
-
-            "site_all_dhcp_exclusion_count"
-            "site_all_dhcp_lease_count"
-            "site_all_dhcp_option_count"
-            "site_all_dhcp_range_count"
-            "site_all_dhcp_range_size"
-            "site_all_dhcp_reservation_count"
-            "site_all_dhcp_service_count"
-            "site_all_dhcp_subnet_count"
-            "site_all_dns_record_ad_count"
-            "site_all_dns_record_nad_count"
-            "site_all_dns_service_count"
-            "site_all_dns_zone_ad_count"
-            "site_all_dns_zone_nad_count"
-            "site_all_site_all_server_count"
-            "site_all_subnet_count"
-        );
-    }
-
-    
-    PROCESS {
-        "Building metrics list to process." | Write-IbLogfile | Write-Verbose;
-
-
-        $metricsToProcess = @();
-
-        
-        if ($customMetricName)
-        {
-            #region Handle one custom metric provided as parameter
-            if ($customMetricName -in $defaultMetricsToProcess)
-            {
-                "Metric '$customMetricName' will be processed only as per 'processOneMetricOnly' parameter." | Write-IbLogfile | Write-Verbose;
-                [array]$metricsToProcess = @($customMetricName);
-            }
-            else
-            {
-                "Value, provided for 'processOneMetricOnly' parameter, is incorrect. Please consult with help section." | Write-IbLogfile -severity Error | Write-Error;
-                "List of supported metrics:`n$defaultMetricsToProcess" | Out-String | Write-IbLogfile -severity Error | Write-Error;
-            }
-            #endregion /Handle one custom metric provided as parameter
-        }
-        else
-        {
-            #region Handle custom metrics categories to add to the list
-            if ($processDnsMetrics)
-            {
-                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dns_"};
-                "DNS metrics are added to the list." | Write-IbLogfile | Write-Verbose;
-            }
-            if ($processDhcpMetrics)
-            {
-                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dhcp_"};
-                "DHCP metrics are added to the list." | Write-IbLogfile | Write-Verbose;
-            }
-            if ($processGenMetrics)
-            {
-                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^gen_"};
-                "GEN metrics are added to the list." | Write-IbLogfile | Write-Verbose;
-            }
-            #endregion /Handle custom metrics categories to add to the list
-
-
-            #region Default list of metrics
-            if ($metricsToProcess.Count -eq 0)
-            {
-                "Generating default list of metrics." | Write-IbLogfile | Write-Verbose;
-                $metricsToProcess = $defaultMetricsToProcess;
-            }
-            #endregion /Default list of metrics
-
-
-            #region Disable 'site_entry / site_all' collection
-            if ($noSitesCollection)
-            {
-                "'noSitesCollection' flag was passed. SITE metrics are excluded from the list." | Write-IbLogfile | Write-Verbose;
-                $metricsToProcess = $metricsToProcess | ?{$_ -notmatch "^site_entry_" -and $_ -notmatch "^site_all_" } | %{$_};
-            }
-            #endregion /Disable 'site_entry / site_all' collection
-        }
-
-
-        Write-Output -NoEnumerate $metricsToProcess;
-    }
-
     
     END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        "[***] Finished collection 'dns_ad_domain_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsMetricsList.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ad_domain_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Resolve-IbDnsRecord.ps1
-function Resolve-IbDnsRecord {
-    [CmdletBinding()]
-    param (
-        # DNS record to resolve
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $record
-    );
-
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_caching_forwarders.ps1
+function infoblox_dns_caching_forwarders {
+    <#
+    .DESCRIPTION
+        The function will return number of all DNS servers in AD forest with explicit or conditional forwarding configured.
+    #>
     
+    [CmdletBinding()]
+    param ();
+    
+
     BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_caching_forwarders'." | Write-IbLogfile | Write-Verbose;
     }
 
-    
+
     PROCESS {
         $result,
-        $cacheItem,
-        $noErrors = $null;
+        $domains = $();
 
 
-        #region Look for results in cache
-        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
-        if ($cacheItem)
-        {
-            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
-            return $cacheItem.Value;
-        }
-        #endregion /Look for results in cache
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$result = $domains | Get-IbAdDnsServer | Sort-Object -Unique | Get-IbAdDnsForwarderConfiguration | ?{$_.general -or $_.conditional};
 
-
-        "Resolving DNS record '$record'." | Write-IbLogfile | Write-Verbose;
-
-
-        try
-        {
-            $command = {Resolve-DnsName -Name $record}.ToString();
-            $result = Resolve-DnsName -Name $record -ErrorAction Stop;
-            $noErrors = $true;
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to resolve '$record' DNS record." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-            $noErrors = $false;
-        }
-
-
-        #region Update cache
-        if ($noErrors)
-        {
-            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
-            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
-        }
-        #endregion /Update cache
-        return $result;
+        
+        return @{
+            key = "dns_caching_forwarders";
+            value = $result.count;
+        };
     }
-
     
+
     END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        "[***] Finished collection 'dns_caching_forwarders'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Resolve-IbDnsRecord.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_caching_forwarders.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbCsPrerequisite.ps1
-function Test-IbCsPrerequisite {
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_external_record_count.ps1
+function infoblox_dns_external_record_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all DNS records, pointing to external addresses (IPv4 and IPv6) from all DNS zones from all DNS servers in the AD forest.
+    #>
+    
     [CmdletBinding()]
     param ();
 
-    
+
     BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_external_record_count'." | Write-IbLogfile | Write-Verbose;
     }
-
     
-    PROCESS {
-        $machineType,
-        $status,
-        $tempStatus,
-        $result = $null;
 
-        
-        "Testing the local machine on compliance to pre-requisites to run current collection script." | Write-IbLogfile | Write-Verbose;
-
-
-        # Check if the local machine is workstation or server. 1 - workstation, 2 - domain controller, 3 - server.
-        $machineType = Get-CimInstance -ClassName Win32_OperatingSystem -Verbose:$false | Select-Object -ExpandProperty ProductType;
-        switch ($machineType)
-        {
-            1
-            {
-                "Current machine is a workstation." | Write-IbLogfile | Write-Verbose;
-
-                try
-                {
-                    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent();
-                    $elevatedPermissions = (New-Object Security.Principal.WindowsPrincipal $currentUser).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator);
-                }
-                catch
-                {
-                    "Error occured on detecting current user context. Possibly, script run in Linux system." | Write-IbLogfile -severity Warning | Write-Warning;
-                    $elevatedPermissions = $false;
-                }
-
-
-                if ($elevatedPermissions)
-                {
-                    $status = @();
-                    @(
-                        "Rsat.ActiveDirectory.DS-LDS.Tools",
-                        "Rsat.DHCP.Tools",
-                        "Rsat.DNS.Tools"
-                    ) | %{
-                        $tempStatus = Get-WindowsCapability -Name $_ -Online -Verbose:$false | Select-Object -ExpandProperty State;
-                        if ($tempStatus -ne "Installed")
-                        {
-                            "Component '$_' is not installed on the current machine. Please read the help section and install it." | Write-IbLogfile -severity Error | Write-Error;
-                            $status += $false;
-                        }
-                        else
-                        {
-                            "Component '$_' - installed." | Write-IbLogfile | Write-Verbose;
-                            $status += $true;
-                        }
-                    }
-                    
-                    
-                    if ($status -notcontains $false)
-                    {
-                        $result = $true;
-                    }
-                    else
-                    {
-                        $result = $false;
-                    }
-                }
-                else
-                {
-                    "Current console is not running under elevated permissions. Pre-requisite checks are not available in workstation without elevated permissions." | Write-IbLogfile -severity Warning | Write-Warning;
-                    "The script will continue without pre-requisite checks." | Write-IbLogfile -severity Warning | Write-Warning;
-
-                    $result = $true;
-                }
-            }
-
-            {$_ -in @(2, 3)}
-            {
-                "Current machine is a server." | Write-IbLogfile | Write-Verbose;
-
-                $originalProgressPreference = $global:ProgressPreference;
-                $global:ProgressPreference = "SilentlyContinue";
-                
-                $status = @();
-                @(
-                    "RSAT-AD-PowerShell",
-                    "RSAT-ADDS",
-                    "RSAT-ADLDS",
-                    "RSAT-DHCP",
-                    "RSAT-DNS-Server"
-                ) | %{
-                    $tempStatus = Get-WindowsFeature -name $_ -Verbose:$false | Select-Object -ExpandProperty Installed;
-                    if (-not $tempStatus)
-                    {
-                        "Component '$_' is not installed on the current machine. Please read the help section and install it." | Write-IbLogfile -severity Error | Write-Error;
-                        $status += $false;
-                    }
-                    else
-                    {
-                        "Component '$_' - installed." | Write-IbLogfile | Write-Verbose;
-                        $status += $true;
-                    }
-                }
-                $global:ProgressPreference = $originalProgressPreference;
-
-                
-                if ($status -notcontains $false)
-                {
-                    $result = $true;
-                }
-                else
-                {
-                    $result = $false;
-                }
-            }
-
-            Default
-            {
-                "Unable to detect current machine state. Considering as halting error. Exiting." | Write-IbLogfile -severity Error | Write-Error;
-                throw 1;
-            }
-        }
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbCsPrerequisite.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbIpInCidr.ps1
-function Test-IbIpInCidr {
-    [CmdletBinding()]
-    [OutputType([System.Boolean])]
-    param (
-        # IP Address to check
-        [Parameter(Mandatory)]
-        [ValidateScript(
-            {
-                ([System.Net.IPAddress]$_).AddressFamily -eq "InterNetwork";
-            }
-        )]
-        [string]
-        $ipAddress,
-
-
-        # Range in which to search using CIDR notation. (ippaddr/bits)
-        [Parameter(Mandatory)]
-        [ValidateScript(
-            {
-                $ip   = ($_ -split '/')[0];
-                $bits = ($_ -split '/')[1];
-
-                ([System.Net.IPAddress]($ip)).AddressFamily -eq "InterNetwork";
-
-                if (-not($bits))
-                {
-                    throw "Missing CIDR notation.";
-                }
-                elseif (-not(0..32 -contains [int]$bits))
-                {
-                    throw "Invalid CIDR notation. The valid bit range is 0 to 32.";
-                }
-            }
-        )]
-        [string]
-        $range
-    );
-
-
-    #region Split range into the address and the CIDR notation
-    [String]$cidrAddress = $range.Split('/')[0];
-    [int]$cidrBits       = $range.Split('/')[1];
-    #endregion /Split range into the address and the CIDR notation
-
-
-    #region Address from range and the search address are converted to Int32 and the full mask is calculated from the CIDR notation
-    [int]$baseAddress    = [System.BitConverter]::ToInt32((([System.Net.IPAddress]::Parse($cidrAddress)).GetAddressBytes()), 0);
-    [int]$address        = [System.BitConverter]::ToInt32(([System.Net.IPAddress]::Parse($ipAddress).GetAddressBytes()), 0);
-    [int]$mask           = [System.Net.IPAddress]::HostToNetworkOrder(-1 -shl ( 32 - $cidrBits));
-    #endregion /Address from range and the search address are converted to Int32 and the full mask is calculated from the CIDR notation
-
-
-    #region Determine whether the address is in the range
-    if (($baseAddress -band $mask) -eq ($address -band $mask))
-    {
-        return $true;
-    }
-    else
-    {
-        return $false;
-    }
-    #endregion /Determine whether the address is in the range
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbIpInCidr.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbServer.ps1
-function Test-IbServer {
-    [CmdletBinding()]
-    param (
-        # Server address
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $serverName,
-
-        # Server type DNS/DHCP
-        [Parameter(Mandatory)]
-        [ValidateSet("dhcp", "dns", "default")]
-        [string]
-        $serverType,
-
-        # Update $global:infoblox_servers variable if checks are implemented in this run
-        [Parameter()]
-        [switch]
-        $skipUpdateEnvironment
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
     PROCESS {
         $result,
-        $server,
-        $checkPerformed = $null;
-
-
-        "Testing if the server '$serverName' (type = '$serverType') is available." | Write-IbLogfile | Write-Verbose;
-
-
-        #region Check if the server already exist in the global array
-        switch ($serverType)
-        {
-            "dns"       { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbDnsServer" -and $_.Name -eq $serverName};  }
-            "dhcp"      { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbDhcpServer" -and $_.Name -eq $serverName}; }
-            "default"   { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbServer" -and $_.Name -eq $serverName};     }
-        }
-        #region /Check if the server already exist in the global array
-
-
-        #region Set result value if it already exists, otherwise - run tests
-        $checkPerformed = $false;
-
-
-        switch ($serverType)
-        {
-            "dns"
-            {
-                if ($server)
-                {
-                    "Server '$($server.Name)' already checked: 'DnsWindowsServiceAvail = $($server.DnsWindowsServiceAvail)', 'DnsAvail = $($server.DnsAvail)', 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
-                    $result = $server.DnsWindowsServiceAvail -and $server.DnsAvail -and $server.Tcp135Avail;
-                }
-                else
-                {
-                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
-
-                    $server = [IbDnsServer]::new($serverName);
-                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
-                    if ($server.Tcp135Avail)
-                    {
-                        if ($PSVersionTable.PSVersion -lt [System.Version]"6.0")
-                        {
-                            $server.DnsWindowsServiceAvail = Test-IbWindowsService -server $serverName -dnsService;
-                        }
-                        else
-                        {
-                            "Script is running on Powershell version '$($PSVersionTable.PSVersion)'. Calling 'Get-Service' against remote computer is not supported. Assuming that DNS Windows service is running on the server '$serverName'." | Write-IbLogfile | Write-Verbose;
-                            $server.DnsWindowsServiceAvail = $true;
-                        }
-                    }
-                    if ($server.DnsWindowsServiceAvail)
-                    {
-                        $server.DnsAvail = Test-IbService -serverName $serverName -serviceName dns;
-                    }
-
-                    $result = $server.Tcp135Avail -and $server.DnsWindowsServiceAvail -and $server.DnsAvail;
-                    $checkPerformed = $true;
-                }
-            }
-
-
-            "dhcp"
-            {
-                if ($server)
-                {
-                    "Server '$($server.Name)' already checked: 'DhcpWindowsServiceAvail = $($server.DhcpWindowsServiceAvail)', 'DhcpAvail = $($server.DhcpAvail)', 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
-                    $result = $server.DhcpWindowsServiceAvail -and $server.DhcpAvail -and $server.Tcp135Avail;
-                }
-                else
-                {
-                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
-
-                    $server = [IbDhcpServer]::new($serverName);
-                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
-                    if ($server.Tcp135Avail)
-                    {
-                        if ([System.Version]$PSVersionTable.PSVersion -lt [System.Version]"6.0")
-                        {
-                            $server.DhcpWindowsServiceAvail = Test-IbWindowsService -server $serverName -dhcpService;
-                        }
-                        else
-                        {
-                            "Script is running on Powershell version '$($PSVersionTable.PSVersion)'. Calling 'Get-Service' against remote computer is not supported. Assuming that DHCP Windows service is running on the server '$serverName'." | Write-IbLogfile | Write-Verbose;
-                            $server.DhcpWindowsServiceAvail = $true;
-                        }
-                    }
-                    if ($server.DhcpWindowsServiceAvail)
-                    {
-                        $server.DhcpAvail = Test-IbService -serverName $serverName -serviceName dhcp;
-                    }
-
-                    $result = $server.Tcp135Avail -and $server.DhcpWindowsServiceAvail -and $server.DhcpAvail;
-                    $checkPerformed = $true;
-                }
-            }
-
-
-            "default"
-            {
-                if ($server)
-                {
-                    "Server '$($server.Name)' already checked: 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
-                    $result = $server.Tcp135Avail;
-                }
-                else
-                {
-                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
-
-                    $server = [IbServer]::new($serverName);
-                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
-
-                    $result = $server.Tcp135Avail;
-                    $checkPerformed = $true;
-                }
-            }
-        }
-        #endregion /Set result value if it already exists, otherwise - run tests
-
-
-        #region Update $global:infoblox_servers variable
-        if (-not $skipUpdateEnvironment -and $checkPerformed)
-        {
-            "Adding check result '$($server | ConvertTo-Json -Compress)' to global variable." | Write-IbLogfile | Write-Verbose;
-            $global:infoblox_servers += $server;
-        }
-        #endregion /Update $global:infoblox_servers variable
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbServer.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbService.ps1
-function Test-IbService {
-    [CmdletBinding()]
-    param (
-        # Server name
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $serverName,
-
-        # Service
-        [Parameter(Mandatory)]
-        [ValidateSet("dhcp", "dns")]
-        [string]
-        $serviceName
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $result = $null;
-
-
-        "Testing connectivity to '$serviceName' service on '$serverName' server." | Write-IbLogfile | Write-Verbose;
-
-
-        try
-        {
-            switch ($serviceName)
-            {
-                "dns"
-                {
-                    $errorMessageCategory = "ad_dns";
-                    # '-WarningAction SilentlyContinue' here is removing the 'EnableRegistryBoot not applicable on DNS Server <server> version.' warnings.
-                    $command = {Get-DnsServer -ComputerName $serverName}.ToString();
-                    $result = Get-DnsServer -ComputerName $serverName -ErrorAction Stop -WarningAction SilentlyContinue;
-                }
-                "dhcp"
-                {
-                    $errorMessageCategory = "ad_dhcp";
-                    $command = {Get-DhcpServerSetting -ComputerName $serverName}.ToString();
-                    $result = Get-DhcpServerSetting -ComputerName $serverName -ErrorAction Stop;
-                }
-            }
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to make test query to '$serviceName' service on the '$server' machine." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-            $result = $false;
-        }
-
-
-        if ($result)
-        {
-            return $true;
-        }
-        else
-        {
-            return $false;
-        }
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbService.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsServer.ps1
-function Test-IbWindowsServer {
-    [CmdletBinding()]
-    param (
-        # Computer name
-        [Parameter(Mandatory)]
-        [string]
-        $server
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        "Verifying if '$server' machine is reachable on port TCP 135." | Write-IbLogfile | Write-Verbose;
+        $domains,
+        $ipv4ExternalAddresses,
+        $ipv6ExternalAddresses,
+        $zones = @();
 
         
-        try
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+
+        foreach ($zone in $zones)
         {
-            $command = {Resolve-DnsName -Name $server}.ToString();
-            $resolveDns = Resolve-DnsName -Name $server -Verbose:$false -ErrorAction Stop;
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to resolve DNS name '$server'." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-            $result = $false;
-        }
-
-
-        if ($resolveDns)
-        {
-            try
-            {
-                $originalProgressPreference = $global:ProgressPreference;
-                $global:ProgressPreference = "SilentlyContinue";
-                $command = {Test-NetConnection -ComputerName $server -Port 135}.ToString();
-                $tcpPing = Test-NetConnection -ComputerName $server -Port 135 -WarningAction SilentlyContinue -ErrorAction Stop;
-                $global:ProgressPreference = $originalProgressPreference;
-            }
-            catch
-            {
-                $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to reach '$server' machine on port TCP 135." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-                $result = $false;
-            }
-
-
-            if ($tcpPing.TcpTestSucceeded)
-            {
-                $result = $true;
-                "Machine '$server' is reachable." | Write-IbLogfile | Write-Verbose;
-            }
-            else
-            {
-                $result = $false;
-                "Machine '$server' is unreachable on port TCP 135." | Write-IbLogfile -severity Warning | Write-Warning;
-
-                $global:infoblox_errors += [pscustomobject]@{
-                    category = "common";
-                    message = "Machine '$server' is unreachable on port TCP 135.";
-                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-                };
-            }
-        }
-        else
-        {
-            "DNS name '$server' could not be resolved." | Write-IbLogfile -severity Warning | Write-Warning;
-            $result = $false;
-
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "common";
-                message = "DNS name '$server' could not be resolved.";
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+            [array]$ipv4ExternalAddresses = Get-IbAdDnsRecord -dnsServer $zone.DnsServer -zoneName $zone.ZoneName -type "A" | ?{
+                -not $($_.RecordData.IPv4Address.IPAddressToString | Test-IbIsPrivateIpAddress)
             };
+            [array]$ipv6ExternalAddresses = Get-IbAdDnsRecord -dnsServer $zone.DnsServer -zoneName $zone.ZoneName -type "AAAA" | ?{
+                -not $($_.RecordData.IPv6Address.IPAddressToString | Test-IbIsPrivateIpAddress)
+            };
+
+            $result += $ipv4ExternalAddresses + $ipv6ExternalAddresses;
         }
+
+        $result = $result | ?{$_};
         
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsServer.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsService.ps1
-function Test-IbWindowsService {
-    [CmdletBinding(DefaultParameterSetName = "ServiceName")]
-    param (
-        # Computer name
-        [Parameter(Mandatory)]
-        [string]
-        $server,
-
-        # Service name
-        [Parameter(Mandatory, ParameterSetName = "ServiceName")]
-        [string]
-        $serviceName,
-
-        # Check DNS service
-        [Parameter(ParameterSetName = "DnsService")]
-        [switch]
-        $dnsService,
-
-        # Check DHCP service
-        [Parameter(ParameterSetName = "DhcpService")]
-        [switch]
-        $dhcpService
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $result,
-        $serviceStatus = $null;
-
         
-        if ($dnsService)
-        {
-            $serviceName = "DNS";
-        }
-        if ($dhcpService)
-        {
-            $serviceName = "DHCPServer";
-        }
-
-
-        "Verifying if '$serviceName' Windows service is running on the '$server' machine." | Write-IbLogfile | Write-Verbose;
-        
-        try
-        {
-            $command = {Get-Service -Name $serviceName -ComputerName $server}.ToString();
-            $serviceStatus = Get-Service -Name $serviceName -ComputerName $server -ErrorAction Stop;
-
-            $result = [pscustomobject]@{
-                name = $serviceStatus.name;
-                displayName = $serviceStatus.DisplayName;
-                status = $serviceStatus.Status;
-                startType = $serviceStatus.StartType;
-                running = if ($serviceStatus.Status -eq "Running") { $true } else { $false };
-            };
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -customErrorMessage "Error while getting status of the '$serviceName' Windows service from the '$server' machine." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-            $result = $false;
-        }
-
-
-        if ($result -and -not $result.running)
-        {
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "common";
-                message = "Server '$server' is running, but windows service '$serviceName' is not in the 'Running' state.";
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
-            };
-            "Server '$server' is running, but windows service '$serviceName' is not in the 'Running' state." | Write-IbLogfile -severity Warning | Write-Warning;
-            
-            $result = $false;
-        }
-        elseif ($result -and $result.running)
-        {
-            $result = $true;
-        }
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsService.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Write-IbLogfile.ps1
-function Write-IbLogfile {
-    [CmdletBinding()]
-    param (
-        # Message passed to the log
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [ValidateNotNullorEmpty()]
-        [string]
-        $text,
-
-        # Message severity passed to the log
-        [Parameter()]
-        [ValidateNotNullorEmpty()]
-        [ValidateSet("Info", "Error", "Warning")]
-        [string]
-        $severity = "Info",
-
-        # Do not return $text as output
-        [Parameter()]
-        [switch]
-        $noOutput
-    );
-
-
-    BEGIN {
-        $logPath = $env:INFOBLOX_SE_LOGPATH;
-    }
- 
-
-    PROCESS {
-        $datetimeStamp = Get-Date -Format "yyyy-MM-dd HH-mm-ss->fff";
-        
-        #region Format spaces
-        if ($severity.Length -le 7)
-        {
-            $severityStamp = "[$severity]";
-            for ($i = $severity.Length; $i -le 7; $i++)
-            {
-                $severityStamp = $severityStamp + " ";
-            }
-        }
-        #endregion /Format spaces
-
-
-        try
-        {
-            Add-Content -Path $logPath -Encoding UTF8 -Value $($datetimeStamp + "  $severityStamp " + $text) -ErrorAction Stop;
-        }
-        catch
-        {
-            Write-Error "Error while trying to write the log file '$logPath'.";
-            throw $_;
-        }
-
-
-        if (-not $noOutput)
-        {
-            return $text;
-        }
-    }
- 
-
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Write-IbLogfile.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/ConvertFrom-IbAdDistinguishedName.ps1
-function ConvertFrom-IbAdDistinguishedName {
-    [CmdletBinding()]
-    param (
-        # AD distinguished name
-        [Alias("dn")]
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $distinguishedName
-    );
-
-    
-    BEGIN {
-        $dnRegex = "^(?:(?<cn>CN=(?<name>[^,]*)),)?(?:(?<path>(?:(?:CN|OU)=[^,]+,?)+),)?(?<domain>(?:DC=[^,]+,?)+)$";
-    }
-
-    
-    PROCESS {
-        $result = $null;
-
-
-        if ($distinguishedName -notmatch $dnRegex)
-        {
-            "Provided Active Directory distinguished name '$distinguishedName' is not correct." | Write-IbLogfile -severity Error | Write-Error;
-
-            $global:infoblox_errors += [pscustomobject]@{
-                category = "ad_common";
-                message = "Cannot parse AD Distinguished Name '$distinguishedName'.";
-                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length - 1)].command -join " -> ";
-            };
-
-            return $null;
-        }
-
-
-        if ($distinguishedName -match $dnRegex)
-        {
-            $result = [pscustomobject]@{
-                name = $Matches["name"];
-                cn = $Matches["cn"];
-                path = $Matches["path"];
-                domain = $Matches["domain"];
-                dn = $distinguishedName;
-            };
-
-
-            return $result;
-        }
-    }
-
-    
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/ConvertFrom-IbAdDistinguishedName.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdComputer.ps1
-function Get-IbAdComputer {
-    [CmdletBinding()]
-    param (
-        # Computer name. You can use wildcard characters here.
-        # Documentation: https://learn.microsoft.com/en-us/windows/win32/adsi/search-filter-syntax#wildcards
-        [Parameter()]
-        [string]
-        $name,
-    
-        # Properties to load from AD. Send empty array for all properties.
-        [Parameter()]
-        [string[]]
-        $properties = @("name"),
-
-        # AD domain name (FQDN)
-        [Parameter(Mandatory)]
-        [string]
-        $domain,
-
-        # Use ADSI queries instead of Powershell
-        [Parameter()]
-        [switch]
-        $useAdsi,
-
-        # Get servers instead of workstations. Cmdlet will return workstations by default.
-        [Parameter()]
-        [switch]
-        $server
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $result,
-        $params,
-        $ldapFilter,
-        $cacheItem,
-        $noErrors = $null;
-
-
-        #region Look for results in cache
-        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
-        if ($cacheItem)
-        {
-            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
-            return $cacheItem.Value;
-        }
-        #endregion /Look for results in cache
-
-
-        if ($useAdsi)
-        {
-            # #region Using ADSI queries
-            # "'useAdsi' flag was passed. Will be using ADSI queries instead of Powershell." | Write-IbLogfile | Write-Verbose;
-
-            # #region Setting ADSI filter
-            # if ($name)
-            # {
-            #     "Getting workstation '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-            #     $query = "(&(&(objectCategory=computer)(objectClass=computer)(name=$name)(!operatingSystem=*server*)))";
-            # }
-            # else
-            # {
-            #     "Getting workstations from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-            #     $query = "(&(&(objectCategory=computer)(objectClass=computer)(!operatingSystem=*server*)))";
-            # }
-            # #endregion /Setting ADSI filter
-
-
-            # if ($domain)
-            # {
-            #     $searchRoot = [adsi]"LDAP://$domain/dc=$($domain.Split(".") -join ",dc=")";
-            # }
-
-
-            # [array]$result = Invoke-IbAdAdsiQuery -query $query -searchRoot $searchRoot -properties $properties;
-            # #endregion /Using ADSI queries
-        }
-        else
-        {
-            #region Using Powershell cmdlets
-            $params = @{
-                Server = $domain;
-            };
-
-
-            #region Setting ADSI filter
-            if ($server)
-            {
-                "Getting servers from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $ldapFilter = "(operatingSystem=*server*)"
-            }
-            else
-            {
-                "Getting workstations from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
-                $ldapFilter = "(!operatingSystem=*server*)";
-            }
-
-
-            if ($name)
-            {
-                "Setting filter to name '$name'." | Write-IbLogfile | Write-Verbose;
-                $ldapFilter += "(name=$name)";
-            }
-            #endregion /Setting ADSI filter
-
-
-            try
-            {
-                if (Test-IbServer -serverName $domain -serverType default)
-                {
-                    $command = {Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties}.ToString();
-                    [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
-                    "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
-                    $noErrors = $true;
-                }
-                else
-                {
-                    "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
-                    $noErrors = $false;
-                }
-            }
-            catch
-            {
-                $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get computer objects from AD for '$domain' domain." `
-                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-                $noErrors = $false;
-            }
-            #endregion /Using Powershell cmdlets
-        }
-
-
-        #region Update cache
-        if ($noErrors)
-        {
-            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
-            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
-        }
-        #endregion /Update cache
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdComputer.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdDomainController.ps1
-function Get-IbAdDomainController {
-    [CmdletBinding()]
-    param (
-        # Domain name
-        [Parameter(Mandatory)]
-        [string]
-        $domain,
-
-        # Filter by Global Catalog role
-        [Parameter()]
-        [switch]
-        $globalCatalog
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $result,
-        $params = $null;
-
-
-        $params = @{
-            Server = $domain;
+        return @{
+            key = "dns_external_record_count";
+            value = $result.count;
         };
-
-
-        #region 'globalCatalog' flag was passed
-        if ($globalCatalog)
-        {
-            "'globalCatalog' flag was passed." | Write-IbLogfile | Write-Verbose;
-            $params.Service = "GlobalCatalog";
-        }
-        #endregion /'globalCatalog' flag was passed
-
-
-        #region Sending request
-        try
-        {
-            if (Test-IbServer -serverName $domain -serverType default)
-            {
-                $command = {Get-ADDomainController @params -Filter "*"}.ToString();
-                [array]$result = Get-ADDomainController @params -Filter "*" -ErrorAction Stop;
-                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
-            }
-            else
-            {
-                "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
-            }
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to discover AD domain controller for '$domain' domain." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-        }
-        #endregion /Sending request
-
-
-        return $result;
     }
-
+    
     
     END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        "[***] Finished collection 'dns_external_record_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdDomainController.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_external_record_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdForest.ps1
-function Get-IbAdForest {
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_forward_zone_count.ps1
+function infoblox_dns_forward_zone_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all forward DNS zones from all DNS servers in the AD forest.
+    #>
+
     [CmdletBinding()]
-    param (
-        
-    );
+    param ();
 
-    
+
     BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_forward_zone_count'." | Write-IbLogfile | Write-Verbose;
     }
-
     
+
     PROCESS {
         $result,
-        $cacheItem,
-        $noErrors = $null;
+        $domains = $();
 
 
-        #region Look for results in cache
-        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
-        if ($cacheItem)
-        {
-            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
-            return $cacheItem.Value;
-        }
-        #endregion /Look for results in cache
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$result = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone -forward `
+            | Sort-Object -Unique -Property ZoneName;
 
-
-        try
-        {
-            $command = {Get-ADForest}.ToString();
-            $result = Get-ADForest;
-            $noErrors = $true;
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-            $noErrors = $false;
-        }
         
-
-        #region Update cache
-        if ($noErrors)
-        {
-            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
-            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
-        }
-        #endregion /Update cache
-        return $result;
+        return @{
+            key = "dns_forward_zone_count";
+            value = $result.count;
+        };
     }
-
+    
     
     END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        "[***] Finished collection 'dns_forward_zone_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdForest.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_forward_zone_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdReplicationLink.ps1
-function Get-IbAdReplicationLink {
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_qps.ps1
+function infoblox_dns_qps {
+    <#
+    .DESCRIPTION
+        The function will detect all DNS servers in AD forest, get DNS Server statistics, and from it - TotalQueries and CurrentUptime metrics.
+        Total queries number divided by uptime secods will give QPS metric for all DNS servers.
+    #>
+
     [CmdletBinding()]
-    param (
-        # AD site
-        [Parameter()]
-        [string]
-        $siteName
-    );
+    param ();
 
-    
+
     BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_qps'." | Write-IbLogfile | Write-Verbose;
     }
-
     
+
     PROCESS {
-        $result = $null;
+        $result,
+        $domains = $null;
 
 
-        "Getting replication links from the current AD forest." | Write-IbLogfile | Write-Verbose;
+        [array]$domains = (Get-IbAdForest).Domains;
+        [decimal]$result = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsServerQps `
+            | Measure-Object -Sum `
+            | Select-Object -ExpandProperty Sum;
+        [decimal]$result = [Math]::Round($result, 2);
 
         
-        try
-        {
-            $command = {Get-ADReplicationSiteLink -Filter *}.ToString();
-            $result = Get-ADReplicationSiteLink -Filter * -ErrorAction Stop;
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-        }
+        return @{
+            key = "dns_qps";
+            value = $result;
+        };
+    }
 
 
-        if ($siteName)
-        {
-            "Site filter applied: '$siteName'." | Write-IbLogfile | Write-Verbose;
+    END {
+        "[***] Finished collection 'dns_qps'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_qps.ps1
 
-            $result = $result | %{
-                if ($_.SitesIncluded -match "^CN=$siteName")
-                {
-                    $_;
-                }
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_a_count.ps1
+function infoblox_dns_record_a_count {
+    <#
+    .DESCRIPTION
+        The function will get all 'A' records from all DNS servers in the AD forest and return their count as result.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_a_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zones,
+        $result,
+        $domains = $();
+        $zone = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName -type "A"
+        };
+        $result = $result | ?{$_};
+
+        
+        return @{
+            key = "dns_record_a_count";
+            value = $result.count;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'dns_record_a_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_a_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_aaaa_count.ps1
+function infoblox_dns_record_aaaa_count {
+    <#
+    .DESCRIPTION
+        The function will get all 'AAAA' records from all DNS servers in the AD forest and return their count as result.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_aaaa_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zones,
+        $result,
+        $domains = $();
+        $zone = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName -type "AAAA"
+        };
+        $result = $result | ?{$_};
+
+        
+        return @{
+            key = "dns_record_aaaa_count";
+            value = $result.count;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'dns_record_aaaa_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_aaaa_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_cname_count.ps1
+function infoblox_dns_record_cname_count {
+    <#
+    .DESCRIPTION
+        The function will get all 'CNAME' records from all DNS servers in the AD forest and return their count as result.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_cname_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zones,
+        $result,
+        $domains = $();
+        $zone = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName -type "CNAME"
+        };
+        $result = $result | ?{$_};
+
+        
+        return @{
+            key = "dns_record_cname_count";
+            value = $result.count;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'dns_record_cname_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_cname_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_count.ps1
+function infoblox_dns_record_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all DNS records from all DNS zones from all DNS servers in the AD forest.
+    #>
+    
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zone = $null;
+        $result,
+        $domains,
+        $zones = @();
+
+        
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName
+        };
+        $result = $result | ?{$_};
+        
+        
+        return @{
+            key = "dns_record_count";
+            value = $result.count;
+        };
+    }
+    
+    
+    END {
+        "[***] Finished collection 'dns_record_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_mx_count.ps1
+function infoblox_dns_record_mx_count {
+    <#
+    .DESCRIPTION
+        The function will get all 'MX' records from all DNS servers in the AD forest and return their count as result.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_mx_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zones,
+        $result,
+        $domains = $();
+        $zone = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName -type "MX"
+        };
+        $result = $result | ?{$_};
+
+        
+        return @{
+            key = "dns_record_mx_count";
+            value = $result.count;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'dns_record_mx_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_mx_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_ns_count.ps1
+function infoblox_dns_record_ns_count {
+    <#
+    .DESCRIPTION
+        The function will get all 'NS' records from all DNS servers in the AD forest and return their count as result.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_ns_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zones,
+        $result,
+        $domains = $();
+        $zone = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName -type "NS"
+        };
+        $result = $result | ?{$_};
+
+        
+        return @{
+            key = "dns_record_ns_count";
+            value = $result.count;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'dns_record_ns_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_ns_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_ptr_count.ps1
+function infoblox_dns_record_ptr_count {
+    <#
+    .DESCRIPTION
+        The function will get all 'PTR' records from all DNS servers in the AD forest and return their count as result.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_ptr_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zones,
+        $result,
+        $domains = $();
+        $zone = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName -type "PTR"
+        };
+        $result = $result | ?{$_};
+
+        
+        return @{
+            key = "dns_record_ptr_count";
+            value = $result.count;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'dns_record_ptr_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_ptr_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_srv_count.ps1
+function infoblox_dns_record_srv_count {
+    <#
+    .DESCRIPTION
+        The function will get all 'SRV' records from all DNS servers in the AD forest and return their count as result.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_srv_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zones,
+        $result,
+        $domains = $();
+        $zone = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName -type "SRV"
+        };
+        $result = $result | ?{$_};
+
+        
+        return @{
+            key = "dns_record_srv_count";
+            value = $result.count;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'dns_record_srv_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_srv_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_txt_count.ps1
+function infoblox_dns_record_txt_count {
+    <#
+    .DESCRIPTION
+        The function will get all 'TXT' records from all DNS servers in the AD forest and return their count as result.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_record_txt_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $zones,
+        $result,
+        $domains = $();
+        $zone = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName;
+
+        $result = $zones | %{
+            Get-IbAdDnsRecord -dnsServer $_.DnsServer -zoneName $_.ZoneName -type "TXT"
+        };
+        $result = $result | ?{$_};
+
+        
+        return @{
+            key = "dns_record_txt_count";
+            value = $result.count;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'dns_record_txt_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_record_txt_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_reverse_zone_count.ps1
+function infoblox_dns_reverse_zone_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all reverse DNS zones from all DNS servers in the forest.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_reverse_zone_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $domains = $();
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$result = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone -reverse `
+            | Sort-Object -Unique -Property ZoneName;
+
+        
+            return @{
+                key = "dns_reverse_zone_count";
+                value = $result.count;
             };
-        }
-
-
-        return $result;
     }
-
+    
     
     END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        "[***] Finished collection 'dns_reverse_zone_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdReplicationLink.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_reverse_zone_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSite.ps1
-function Get-IbAdSite {
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_server_count.ps1
+function infoblox_dns_server_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all DNS servers in the forest.
+    #>
+
     [CmdletBinding()]
-    param (
-        # Site name to return
-        [Parameter()]
-        [string]
-        $name
-    );
-
+    param ();
     
+
     BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_server_count'." | Write-IbLogfile | Write-Verbose;
     }
-
     
+
     PROCESS {
         $result,
-        $filter,
-        $cacheItem,
-        $noErrors = $null;
+        $domains = $();
 
 
-        #region Look for results in cache
-        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
-        if ($cacheItem)
-        {
-            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
-            return $cacheItem.Value;
-        }
-        #endregion /Look for results in cache
-
-
-        "Getting AD sites from the current AD forest." | Write-IbLogfile | Write-Verbose;
-
-
-        #region Setting ADSI filter
-        if ($name)
-        {
-            "Setting filter to name '$name'." | Write-IbLogfile | Write-Verbose;
-            $filter = "name -eq '$name'";
-        }
-        else
-        {
-            $filter = "*";
-        }
-        #endregion /Setting ADSI filter
-
-
-        try
-        {
-            $command = {Get-ADReplicationSite -Filter $filter}.ToString();
-            [array]$result = Get-ADReplicationSite -Filter $filter -ErrorAction Stop;
-            $noErrors = $true;
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-            $noErrors = $false;
-        }
-
-
-        #region Update cache
-        if ($noErrors)
-        {
-            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
-            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
-        }
-        #endregion /Update cache
-        return $result;
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$result = $domains | Get-IbAdDnsServer | Sort-Object -Unique;
+        
+        
+        return @{
+            key = "dns_server_count";
+            value = $result.count;
+        };
     }
-
+    
     
     END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        "[***] Finished collection 'dns_server_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSite.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_server_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSiteByIpAddress.ps1
-function Get-IbAdSiteByIpAddress {
-    [CmdletBinding()]
-    param (
-        # IP addresses to select AD Site from
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $ipAddress
-    );
-
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_vendor.ps1
+function infoblox_dns_vendor {
+    <#
+    .DESCRIPTION
+        The function will return AD Forest functional level.
+    #>
     
+    [CmdletBinding()]
+    param ();
+
+
     BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_vendor'." | Write-IbLogfile | Write-Verbose;
     }
 
-    
+
     PROCESS {
-        $subnets,
-        $siteName,
         $result = $null;
 
-
-        "Getting AD site for the '$ipAddress' IP address." | Write-IbLogfile | Write-Verbose;
-
-
-        $subnets = Get-IbAdSubnet -ipv4;
-
-
-        foreach ($subnet in $subnets)
-        {
-            # $subnet.Site can be $null if subnet is not assigned to a AD site, therefore there is a check on that below
-            if ($(Test-IbIpInCidr -ipAddress $ipAddress -range $subnet.Name) -and $subnet.Site)
-            {
-                $siteName = ConvertFrom-IbAdDistinguishedName -distinguishedName $subnet.Site | Select-Object -ExpandProperty name;
-                $result = Get-IbAdSite -name $siteName;
-
-                "Address '$ipAddress' matches the subnet '$($subnet.Name)' in '$siteName' site." | Write-IbLogfile | Write-Verbose;
-                break;
-            }
-        }
-
-
-        #region If site was not found - then return Default-First-Site-Name
+        
+        $result = Get-IbAdForest | Select-Object -ExpandProperty ForestMode;
         if (-not $result)
         {
-            "Site was not found by searching through IP address. Returning 'Default-First-Site-Name' site." | Write-IbLogfile | Write-Verbose;
-
-            $result = Get-IbAdSite -name "Default-First-Site-Name";
-        }
-        #endregion /If site was not found - then return Default-First-Site-Name
-
-
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSiteByIpAddress.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSubnet.ps1
-function Get-IbAdSubnet {
-    [CmdletBinding(DefaultParameterSetName = "ipv4")]
-    param (
-        # Filter by AD Site
-        [Parameter()]
-        [string]
-        $siteName,
-
-        # Return IPv6 subnets only
-        [Parameter(ParameterSetName = "ipv6")]
-        [switch]
-        $ipv6,
-
-        # Return IPv4 subnets only
-        [Parameter(ParameterSetName = "ipv4")]
-        [switch]
-        $ipv4
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
-
-        $privateIpv4Ranges = "(^127\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)";
-        $privateIpv6Ranges = "^f[cd][0-9a-fA-F]{2}:"; # fc00::/7
-        $localIpv6Ranges = "^fe[89abAB][0-9a-fA-F]:"; # fe80::/10
-    }
-
-    
-    PROCESS {
-        $result,
-        $cacheItem,
-        $noErrors = $null;
-
-
-        #region Look for results in cache
-        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
-        if ($cacheItem)
-        {
-            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
-            return $cacheItem.Value;
-        }
-        #endregion /Look for results in cache
-
-
-        "Getting AD replication subnets." | Write-IbLogfile | Write-Verbose;
-
-        try
-        {
-            $command = {Get-ADReplicationSubnet -Filter "*"}.ToString();
-            [array]$result = Get-ADReplicationSubnet -Filter "*" -ErrorAction Stop;
-            $noErrors = $true;
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-            $noErrors = $false;
+            $result = "";
         }
 
 
-        if ($ipv4)
-        {
-            "'ipv4' flag passed. Returning IPv4 subnets only." | Write-IbLogfile | Write-Verbose;
-            [array]$result = $result | ?{$_.name -match $privateIpv4Ranges};
-        }
-
-
-        if ($ipv6)
-        {
-            "'ipv6' flag passed. Returning IPv6 subnets only." | Write-IbLogfile | Write-Verbose;
-            [array]$result = $result | ?{$_.name -match $privateIpv6Ranges -or $_.name -match $localIpv6Ranges};
-        }
-
-
-        if ($siteName)
-        {
-            "'siteName = $siteName' parameter passed." | Write-IbLogfile | Write-Verbose;
-            [array]$result = $result | ?{$_.Site -match "^CN=$siteName"};
-        }
-
-
-        "$($result.count) subnets found." | Write-IbLogfile | Write-Verbose;
-
-
-        #region Update cache
-        if ($noErrors)
-        {
-            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
-            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
-        }
-        #endregion /Update cache
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSubnet.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdUser.ps1
-function Get-IbAdUser {
-    [CmdletBinding(DefaultParameterSetName = "EnabledAndDisabled")]
-    param (
-        # Properties to load from AD. Send empty array for all properties.
-        [Parameter()]
-        [string[]]
-        $properties = @("name"),
-
-        # Search for disabled users only
-        [Parameter(ParameterSetName = "DisabledOnly")]
-        [switch]
-        $disabledOnly,
-
-        # Search for enabled users only
-        [Parameter(ParameterSetName = "EnabledOnly")]
-        [switch]
-        $enabledOnly,
-
-        # Exclude accounts with names finishing with 'SvcAccount'
-        [Parameter()]
-        [switch]
-        $excludeServiceAccounts,
-
-        # Domain to get users from
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [string]
-        $domain
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $result = $null;
-
-
-        $params = [hashtable]@{
-            Server = $domain;
-            Filter = @();
+        return @{
+            key = "dns_vendor";
+            value = $result;
         };
-
-
-        #region Processing 'excludeServiceAccounts' parameter
-        if ($excludeServiceAccounts)
-        {
-            $params.filter += "Name -notlike '*SvcAccount'";
-        }
-        #endregion /Processing 'excludeServiceAccounts' parameter
-
-
-        #region Processing 'disabledOnly' flag
-        if ($disabledOnly)
-        {
-            "'disabledOnly' flag was passed. Setting additional ADSI filter." | Write-IbLogfile | Write-Verbose;
-            $params.filter += "Enabled -eq 'False'";
-        }
-        #endregion /Processing 'disabledOnly' flag
-
-
-        #region Processing 'enabledOnly' flag
-        if ($enabledOnly)
-        {
-            "'enabledOnly' flag was passed. Setting additional ADSI filter." | Write-IbLogfile | Write-Verbose;
-            $params.filter += "Enabled -eq 'True'";
-        }
-        #endregion /Processing 'enabledOnly' flag
-
-
-        try
-        {
-            if ($params.filter.count -eq 0)
-            {
-                $params.filter = "*";
-            }
-            else
-            {
-                $params.filter = $($params.filter | ?{$_ -ne "*"}) -join " -and ";
-            }
-            "Using filter: '$($params.filter)'." | Write-IbLogfile | Write-Verbose;
-
-            
-            if (Test-IbServer -serverName $domain -serverType default)
-            {
-                $command = {Get-ADUser @params -Properties $properties}.ToString();
-                [array]$result = Get-ADUser @params -Properties $properties -ErrorAction Stop;
-                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
-            }
-            else
-            {
-                "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
-            }
-        }
-        catch
-        {
-            $_ | New-IbCsErrorMessage -customErrorMessage "Error while getting users from AD ('$server' domain controller)." `
-                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
-        }
-
-
-        return $result;
     }
-
+    
     
     END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        "[***] Finished collection 'dns_vendor'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdUser.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_vendor.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdFqdnInSite.ps1
-function Test-IbAdFqdnInSite {
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_zone_dnssec_signed_count.ps1
+function infoblox_dns_zone_dnssec_signed_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all DNSSEC-signed DNS zones from all DNS servers in the AD forest.
+    #>
+
     [CmdletBinding()]
-    param (
-        # FQDN to check
-        [Parameter(Mandatory)]
-        [string]
-        $serverName,
+    param ();
 
 
-        # Site name to check
-        [Parameter(Mandatory)]
-        [string]
-        $siteName
-    );
-
-    
     BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'dns_zone_dnssec_signed_count'." | Write-IbLogfile | Write-Verbose;
     }
-
     
+
     PROCESS {
         $result,
-        $cacheItem,
-        $noErrors,
-        $ipAddress,
-        $ipAddressInSite = $null;
+        $domains = $();
 
 
-        #region Look for results in cache
-        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
-        if ($cacheItem)
-        {
-            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
-            return $cacheItem.Value;
-        }
-        #endregion /Look for results in cache
-
-
-        "Checking if Server '$serverName' is part of the '$siteName' AD site." | Write-IbLogfile | Write-Verbose;
-
-
-        $ipAddress = $serverName | Resolve-IbDnsRecord;
-
-
-        if ($ipAddress)
-        {
-            [array]$ipAddressInSite = $ipAddress | Test-IbAdIpInSite -siteName $siteName | Sort-Object -Descending;
-            $result = $true -in $ipAddressInSite;
-            $noErrors = $true;
-        }
-        else
-        {
-            "DNS record '$serverName' could not be resolved. Returning 'False'." | Write-IbLogfile -severity Warning | Write-Warning;
-            $result = $false;
-            $noErrors = $true;
-        }
-
-
-        #region Update cache
-        if ($noErrors)
-        {
-            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
-            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
-        }
-        #endregion /Update cache
-        return $result;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdFqdnInSite.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdIpInSite.ps1
-function Test-IbAdIpInSite {
-    [CmdletBinding()]
-    param (
-        # IP Address to check
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [object]
-        [ValidateScript(
-            {
-                if ($_ -is [System.String])
-                {
-                    $ipAddressString = $_;
-                }
-                elseif ($_ -is [Microsoft.DnsClient.Commands.DnsRecord])
-                {
-                    $ipAddressString = $_.IpAddress;
-                }
-
-
-                $([System.Net.IPAddress]$ipAddressString).AddressFamily -in @("InterNetwork", "InterNetworkV6");
-            }
-        )]
-        $ipAddress,
-
-
-        # Site name to check
-        [Parameter(Mandatory)]
-        [string]
-        $siteName
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $ipAddressSite,
-        $cacheItem,
-        $noErrors,
-        $result = $null;
-
-
-        #region Look for results in cache
-        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
-        if ($cacheItem)
-        {
-            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
-            return $cacheItem.Value;
-        }
-        #endregion /Look for results in cache
-
-
-        #region Convert possible types to [System.String]
-        if ($ipAddress -is [System.String])
-        {
-            $ipAddressString = $ipAddress;
-        }
-        elseif ($ipAddress -is [Microsoft.DnsClient.Commands.DnsRecord])
-        {
-            $ipAddressString = $ipAddress.IpAddress;
-        }
-        #endregion /Convert possible types to [System.String]
-
-
-        "Checking if IP address '$ipAddressString' is part of the '$siteName' AD site." | Write-IbLogfile | Write-Verbose;
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$result = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | Sort-Object -Unique -Property ZoneName `
+            | ?{$_.IsSigned -eq $true};
 
         
-        if ($([System.Net.IPAddress]$ipAddressString).AddressFamily -eq "InterNetwork")
-        {
-            $ipAddressSite = $ipAddressString | Get-IbAdSiteByIpAddress;
-
-
-            if ($ipAddressSite.Name -eq $siteName)
-            {
-                $result = $true;
-            }
-            else
-            {
-                $result = $false;
-            }
-            $noErrors = $true;
-        }
-        else
-        {
-            "Address '$ipAddressString' is IPv6, not supported for check. Returning '$false'." | Write-IbLogfile -severity Warning | Write-Verbose; # Write-Verbose is intended here to reduce noise.
-            $result = $false;
-            $noErrors = $false;
-        }
-
-
-        #region Update cache
-        if ($noErrors)
-        {
-            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
-            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
-        }
-        #endregion /Update cache
-        return $result;
+        return @{
+            key = "dns_zone_dnssec_signed_count";
+            value = $result.count;
+        };
     }
-
+    
     
     END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+        "[***] Finished collection 'dns_zone_dnssec_signed_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdIpInSite.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Add-IbCacheItem.ps1
-function Add-IbCacheItem {
-    [CmdletBinding()]
-    param (
-        # Cmdlet to look for results
-        [Parameter(Mandatory)]
-        [string]
-        $cmdlet,
-
-        # Parameters passed to cmdlet
-        [Parameter(Mandatory)]
-        [hashtable]
-        $parameters,
-
-        # Cache item value
-        [Parameter(Mandatory)]
-        [AllowNull()]
-        [psobject]
-        $value
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        "Adding item to cache for cmdlet '$cmdlet' and '$($parameters | ConvertTo-Json -Depth 99 -Compress)' set of parameters." | Write-IbLogfile | Write-Verbose;
-
-
-        $item = [IbCacheItem]::new($cmdlet);
-        $item.Params = $parameters;
-        $item.Value = $value;
-        $global:infoblox_cache.Add($item) | Out-Null;
-
-
-        "Item added. Id = '$($item.Id)'. Current cache size: $($global:infoblox_cache.Count)." | Write-IbLogfile | Write-Verbose;
-
-
-        return $item;
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Add-IbCacheItem.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Get-IbCacheItem.ps1
-function Get-IbCacheItem {
-    [CmdletBinding()]
-    param (
-        # Cmdlet to look for results
-        [Parameter(Mandatory)]
-        [string]
-        $cmdlet,
-
-        # Parameters passed to cmdlet
-        [Parameter(Mandatory)]
-        [hashtable]
-        $parameters
-    );
-
-    
-    BEGIN {}
-
-    
-    PROCESS {
-        $result = $null;
-
-
-        "Getting cache item for '$cmdlet' cmdlet and '$($parameters | ConvertTo-Json -Depth 99 -Compress)' set of parameters." | Write-IbLogfile | Write-Verbose;
-
-
-        [array]$result = $global:infoblox_cache | ?{$_.Cmdlet -eq $cmdlet};
-        [array]$result = $result | ?{Compare-IbHashtable $_.Params $parameters};
-
-
-        #region What if multiple items found in the cache?
-        if ($result.count -eq 0)
-        {
-            "Nothing was found in cache." | Write-IbLogfile | Write-Verbose;
-            $result = $null;
-        }
-        elseif ($result.count -eq 1)
-        {
-            "One item found in cache. Id = '$($result[0].Id)'." | Write-IbLogfile | Write-Verbose;
-            $result[0].ReadCount++;
-        }
-        else
-        {
-            "Multiple items found in cache with specified parameters. Cache consistency is broken. Removing duplicate items." | Write-IbLogfile -severity Warning | Write-Warning;
-            $result | Remove-IbCacheItem;
-            "Returning 'Null'. Cache data should be refreshed." | Write-IbLogfile | Write-Verbose;
-            $result = $null;
-        }
-        #endregion /What if multiple items found in the cache?
-
-
-        if ($result)
-        {
-            return $result[0];
-        }
-        else
-        {
-            return $result;
-        }
-    }
-
-    
-    END {}
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Get-IbCacheItem.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Remove-IbCacheItem.ps1
-function Remove-IbCacheItem {
-    [CmdletBinding()]
-    param (
-        # Id
-        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
-        [string]
-        $id
-    );
-
-    
-    BEGIN {
-        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $itemToRemove = $null;
-
-
-        "Removing item with id '$id' from cache." | Write-IbLogfile | Write-Verbose;
-
-        $itemToRemove = $global:infoblox_cache | ?{$_.Id -eq $id};
-        if ($itemToRemove)
-        {
-            $global:infoblox_cache.Remove($itemToRemove);
-        }
-        else
-        {
-            "Item with id '$id' doesn't exist in cache." | Write-IbLogfile -severity Warning | Write-Warning;
-        }
-    }
-
-    
-    END {
-        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Remove-IbCacheItem.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_zone_dnssec_signed_count.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dhcp/dhcp_device_count.ps1
@@ -3578,6 +1661,803 @@ function infoblox_gen_vendor {
     }
 }
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/gen/gen_vendor.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_exclusion_count.ps1
+function infoblox_site_all_dhcp_exclusion_count {
+    <#
+    .DESCRIPTION
+        The function will return a number of exclusions in all active scopes (IPv4 and IPv6) in all DHCP servers in AD.
+    #>
+
+    [CmdletBinding()]
+    param ();
+    
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dhcp_exclusion_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $ipv4Exclusions,
+        $ipv6Exclusions,
+        $dhcpServers = $null;
+
+        [array]$dhcpServers = Get-IbAdDhcpServer;
+
+
+        if ($dhcpServers)
+        {
+            [array]$ipv4Exclusions = $dhcpServers | Get-IbAdDhcpScope -ipv4 -active -primary | %{
+                Get-IbAdDhcpExclusion -dhcpServer $_.DhcpServer -scopeId $_.ScopeId -ipv4;
+            };
+
+            [array]$ipv6Exclusions = $dhcpServers | Get-IbAdDhcpScope -ipv6 -active | %{
+                Get-IbAdDhcpExclusion -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix -ipv6;
+            };
+
+
+            $result = $ipv4Exclusions + $ipv6Exclusions | Measure-Object | Select-Object -ExpandProperty Count;
+        }
+        else
+        {
+            $result = 0;
+        }
+
+
+        return @{
+            key = "site_all_dhcp_exclusion_count";
+            value = $result;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'site_all_dhcp_exclusion_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_exclusion_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_lease_count.ps1
+function infoblox_site_all_dhcp_lease_count {
+    <#
+    .DESCRIPTION
+        The function will return a number of leases in all active scopes (IPv4 and IPv6) per each DHCP server in AD.
+    #>
+
+    [CmdletBinding()]
+    param ();
+    
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dhcp_lease_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $dhcpServers,
+        $ipv4Leases,
+        $ipv6Leases = $null;
+
+
+        [array]$dhcpServers = Get-IbAdDhcpServer;
+
+
+        if ($dhcpServers)
+        {
+            [array]$ipv4Leases = $dhcpServers | Get-IbAdDhcpScope -ipv4 -active -primary | %{
+                Get-IbAdDhcpServerLease -dhcpServer $_.DhcpServer -scopeId $_.ScopeId;
+            };
+            
+            [array]$ipv6Leases = $dhcpServers | Get-IbAdDhcpScope -ipv6 -active | %{
+                Get-IbAdDhcpServerLease -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix;
+            };
+
+
+            $result = $ipv4Leases.Count + $ipv6Leases.Count;
+        }
+        else
+        {
+            $result = 0;
+        }
+
+
+        return @{
+            key = "site_all_dhcp_lease_count";
+            value = $result;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'site_all_dhcp_lease_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_lease_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_option_count.ps1
+function infoblox_site_all_dhcp_option_count {
+    <#
+    .DESCRIPTION
+        The function will return a number of DHCP options in all active scopes (IPv4 and IPv6) and all reservations (also both IPv4 and IPv6) 
+        per each DHCP server in AD.
+    #>
+
+    [CmdletBinding()]
+    param ();
+    
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dhcp_option_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $dhcpServers,
+        $scopeOptions,
+        $reservationOptions = $null;
+
+
+        [array]$dhcpServers = Get-IbAdDhcpServer;
+
+
+        if ($dhcpServers)
+        {
+            [array]$scopeOptions = $dhcpServers | Get-IbAdDhcpScope -active -primary | Sort-Object -Property scopeId | Get-IbAdDhcpOption;
+            [array]$reservationOptions = $dhcpServers | Get-IbAdDhcpScope -active -primary | Sort-Object -Property scopeId | Get-IbAdDhcpReservation | %{
+                Get-IbAdDhcpOption -dhcpServer $_.dhcpServer -reservedIp $_.reservedIp;
+            };
+
+
+            $result = $scopeOptions.Count + $reservationOptions.Count;
+        }
+        else
+        {
+            $result = 0;
+        }
+
+
+        return @{
+            key = "site_all_dhcp_option_count";
+            value = $result;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'site_all_dhcp_option_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_option_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_range_count.ps1
+function infoblox_site_all_dhcp_range_count {
+    <#
+    .DESCRIPTION
+        The function will return a number of ranges (which is defined as number of exclusions plus one) per each DHCP server in AD.
+    #>
+
+    [CmdletBinding()]
+    param ();
+    
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dhcp_range_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $ipv4Exclusions,
+        $ipv6Exclusions,
+        $dhcpServers = $null;
+
+        [array]$dhcpServers = Get-IbAdDhcpServer;
+
+
+        if ($dhcpServers)
+        {
+            [array]$ipv4Exclusions = $dhcpServers | Get-IbAdDhcpScope -ipv4 -active -primary | %{
+                Get-IbAdDhcpExclusion -dhcpServer $_.DhcpServer -scopeId $_.ScopeId -ipv4;
+            };
+            if ($ipv4Exclusions.Count -gt 0)
+            {
+                $ipv4Ranges = $ipv4Exclusions.Count + 1;
+            }
+            else
+            {
+                $ipv4Ranges = 0;
+            }
+            
+
+            [array]$ipv6Exclusions = $dhcpServers | Get-IbAdDhcpScope -ipv6 -active | %{
+                Get-IbAdDhcpExclusion -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix -ipv6;
+            };
+            if ($ipv6Exclusions.Count -gt 0)
+            {
+                $ipv6Ranges = $ipv6Exclusions.Count + 1;
+            }
+            else
+            {
+                $ipv6Ranges = 0;
+            }
+
+
+            $result = $ipv4Ranges + $ipv6Ranges;
+        }
+        else
+        {
+            $result = 0;
+        }
+
+
+        return @{
+            key = "site_all_dhcp_range_count";
+            value = $result;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'site_all_dhcp_range_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_range_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_range_size.ps1
+function infoblox_site_all_dhcp_range_size {
+    <#
+    .DESCRIPTION
+        The function will return a number as a sum of IP addresses in use and free in all IPv4 scopes per each DHCP server in the site.
+    #>
+
+    [CmdletBinding()]
+    param ();
+    
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dhcp_range_size'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $dhcpServers = $null;
+
+        [array]$dhcpServers = Get-IbAdDhcpServer;
+
+
+        if ($dhcpServers)
+        {
+            $result = $dhcpServers `
+                | Get-IbAdDhcpScope -ipv4 -active -primary `
+                | Get-IbAdDhcpScopeSize `
+                | Measure-Object -Sum `
+                | Select-Object -ExpandProperty Sum;
+        }
+        else
+        {
+            $result = 0;
+        }
+
+
+        return @{
+            key = "site_all_dhcp_range_size";
+            value = $result;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'site_all_dhcp_range_size'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_range_size.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_reservation_count.ps1
+function infoblox_site_all_dhcp_reservation_count {
+    <#
+    .DESCRIPTION
+        The function will return a number of reservations in all active scopes (IPv4 and IPv6) on all DHCP servers in AD.
+    #>
+
+    [CmdletBinding()]
+    param ();
+    
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dhcp_reservation_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $dhcpServers,
+        $ipv4Reservations,
+        $ipv6Reservations = $null;
+
+
+        [array]$dhcpServers = Get-IbAdDhcpServer;
+
+
+        if ($dhcpServers)
+        {
+            [array]$ipv4Reservations = $dhcpServers | Get-IbAdDhcpScope -ipv4 -active -primary | %{
+                Get-IbAdDhcpReservation -dhcpServer $_.DhcpServer -scopeId $_.ScopeId;
+            };
+
+            [array]$ipv6Reservations = $dhcpServers | Get-IbAdDhcpScope -ipv6 -active | %{
+                Get-IbAdDhcpReservation -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix;
+            };
+
+
+            $result = $ipv4Reservations.Count + $ipv6Reservations.Count;
+        }
+        else
+        {
+            $result = 0;
+        }
+
+
+        return @{
+            key = "site_all_dhcp_reservation_count";
+            value = $result;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'site_all_dhcp_reservation_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_reservation_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_service_count.ps1
+function infoblox_site_all_dhcp_service_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all authorized DHCP servers in AD forest.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dhcp_service_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result = $null;
+
+        [array]$result = Get-IbAdDhcpServer;
+        
+        return @{
+            key = "site_all_dhcp_service_count";
+            value = $result.count;
+        };
+    }
+    
+
+    END {
+        "[***] Finished collection 'site_all_dhcp_service_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_service_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_subnet_count.ps1
+function infoblox_site_all_dhcp_subnet_count {
+    <#
+    .DESCRIPTION
+        The function return number of all active scopes (IPv4 and IPv6) from all DHCP servers in AD forest. Only unique combinations of 'Server', 'ScopeId' and
+        'Prefix' will be counted.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'infoblox_site_all_dhcp_subnet_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result = $null;
+
+
+        [array]$result = Get-IbAdDhcpServer | Get-IbAdDhcpScope -active -primary;
+        #region Add new property 'ServerScopeId' that will represent combination 'Server', 'ScopeId' and 'Prefix' and select unique objects on that property
+        $result | %{ $_ | Add-Member -MemberType NoteProperty -Name "ServerScopeId" -Value "$($_.DhcpServer)__$($_.ScopeId)__$($_.Prefix)" -Force };
+        $result = $result | Sort-Object -Unique ServerScopeId;
+        #endregion /Add new property 'ServerScopeId' that will represent combination 'Server', 'ScopeId' and 'Prefix' and select unique objects on that property
+        
+
+        return @{
+            key = "site_all_dhcp_subnet_count";
+            value = $result.count;
+        };
+    }
+    
+    
+    END {
+        "[***] Finished collection 'infoblox_site_all_dhcp_subnet_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_subnet_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_record_ad_count.ps1
+function infoblox_site_all_dns_record_ad_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all DNS records from all AD-integrated DNS zones from all DNS servers in the AD forest.
+    #>
+    
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dns_record_ad_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $result,
+        $domains,
+        $zones,
+        $zone = $null;
+
+
+        $result = @();
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | ?{ $_.IsDsIntegrated } `
+            | Sort-Object -Unique -Property ZoneName;
+
+        foreach ($zone in $zones)
+        {
+            $result += Get-IbAdDnsRecord -dnsServer $zone.DnsServer -zoneName $zone.ZoneName;
+        }
+        $result = $result | ?{$_};
+        
+        
+        return @{
+            key = "site_all_dns_record_ad_count";
+            value = $result.count;
+        };
+    }
+    
+    
+    END {
+        "[***] Finished collection 'site_all_dns_record_ad_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_record_ad_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_record_nad_count.ps1
+function infoblox_site_all_dns_record_nad_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all DNS records from all NON-AD-integrated DNS zones from all DNS servers in the AD forest.
+    #>
+    
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dns_record_nad_count'." | Write-IbLogfile | Write-Verbose;
+    }
+    
+
+    PROCESS {
+        $result,
+        $domains,
+        $zones,
+        $zone = $null;
+
+
+        $result = @();
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$zones = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | ?{ -not $_.IsDsIntegrated } `
+            | Sort-Object -Unique -Property ZoneName;
+
+        foreach ($zone in $zones)
+        {
+            $result += Get-IbAdDnsRecord -dnsServer $zone.DnsServer -zoneName $zone.ZoneName;
+        }
+        $result = $result | ?{$_};
+        
+        
+        return @{
+            key = "site_all_dns_record_nad_count";
+            value = $result.count;
+        };
+    }
+    
+    
+    END {
+        "[***] Finished collection 'site_all_dns_record_nad_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_record_nad_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_service_count.ps1
+function infoblox_site_all_dns_service_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all authorized DNS servers in AD forest.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dns_service_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $domains = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$result = $domains | Get-IbAdDnsServer | Sort-Object -Unique;
+
+        
+        return @{
+            key = "site_all_dns_service_count";
+            value = $result.count;
+        };
+    }
+    
+
+    END {
+        "[***] Finished collection 'site_all_dns_service_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_service_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_zone_ad_count.ps1
+function infoblox_site_all_dns_zone_ad_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all AD-integrated DNS zones in all DNS servers in AD forest.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dns_zone_ad_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $domains = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$result = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | ?{ $_.IsDsIntegrated } `
+            | Sort-Object -Unique -Property ZoneName;
+
+        
+        return @{
+            key = "site_all_dns_zone_ad_count";
+            value = $result.count;
+        };
+    }
+    
+
+    END {
+        "[***] Finished collection 'site_all_dns_zone_ad_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_zone_ad_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_zone_nad_count.ps1
+function infoblox_site_all_dns_zone_nad_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all non-AD-integrated DNS zones in all DNS servers in AD forest.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_dns_zone_nad_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $domains = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+        [array]$result = $domains `
+            | Get-IbAdDnsServer `
+            | Sort-Object -Unique `
+            | Get-IbAdDnsZone `
+            | ?{ -not $_.IsDsIntegrated } `
+            | Sort-Object -Unique -Property ZoneName;
+
+        
+        return @{
+            key = "site_all_dns_zone_nad_count";
+            value = $result.count;
+        };
+    }
+    
+
+    END {
+        "[***] Finished collection 'site_all_dns_zone_nad_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_zone_nad_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_site_all_server_count.ps1
+function infoblox_site_all_site_all_server_count {
+    <#
+    .DESCRIPTION
+        The function will return number of all authorized DNS servers in AD forest.
+    #>
+
+    [CmdletBinding()]
+    param ();
+
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_site_all_server_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $dnsServers,
+        $dhcpServers,
+        $domains = $null;
+
+
+        [array]$domains = (Get-IbAdForest).Domains;
+
+        [array]$dnsServers = $domains | Get-IbAdDnsServer | Sort-Object -Unique;
+        [array]$dhcpServers = Get-IbAdDhcpServer;
+        [array]$result = $dnsServers + $dhcpServers | Sort-Object -Unique;
+
+        
+        return @{
+            key = "site_all_site_all_server_count";
+            value = $result.count;
+        };
+    }
+    
+
+    END {
+        "[***] Finished collection 'site_all_site_all_server_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_site_all_server_count.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_subnet_count.ps1
+function infoblox_site_all_subnet_count {
+    <#
+    .DESCRIPTION
+        The function will return a number of unique network addresses, that are defined in AD Sites and Services snap-in and DHCP scope in all DHCP servers in AD.
+        Only string values will be taken into account here. No address calculations will be taken. DHCP scopes netmask property will be converted into CIDR notation.
+    #>
+
+    [CmdletBinding()]
+    param ();
+    
+
+    BEGIN {
+        " " | Write-IbLogfile | Write-Verbose;
+        "[***] Collection 'site_all_subnet_count'." | Write-IbLogfile | Write-Verbose;
+    }
+
+
+    PROCESS {
+        $result,
+        $dhcpScopes,
+        $dhcpSubnets,
+        $adSubnets,
+        $dhcpServers = $null;
+
+        [array]$dhcpServers = Get-IbAdDhcpServer;
+
+
+        if ($dhcpServers)
+        {
+            [array]$dhcpScopes = $dhcpServers | Get-IbAdDhcpScope -active -primary;
+        }
+        else
+        {
+            $result = @();
+        }
+
+        [array]$adSubnets = Get-IbAdSubnet;
+        $result = $($adSubnets.Name; $dhcpScopes.SubnetAddress) | Sort-Object -Unique | Measure-Object | Select-Object -ExpandProperty Count;
+
+
+        return @{
+            key = "site_all_subnet_count";
+            value = $result;
+        };
+    }
+
+
+    END {
+        "[***] Finished collection 'site_all_subnet_count'." | Write-IbLogfile | Write-Verbose;
+        " " | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_subnet_count.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_entry/site_entry_dhcp_exclusion_count.ps1
@@ -4954,1638 +3834,1919 @@ function infoblox_site_entry_user_count {
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_entry/site_entry_user_count.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_exclusion_count.ps1
-function infoblox_site_all_dhcp_exclusion_count {
-    <#
-    .DESCRIPTION
-        The function will return a number of exclusions in all active scopes (IPv4 and IPv6) in all DHCP servers in AD.
-    #>
-
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Add-IbCacheItem.ps1
+function Add-IbCacheItem {
     [CmdletBinding()]
-    param ();
-    
+    param (
+        # Cmdlet to look for results
+        [Parameter(Mandatory)]
+        [string]
+        $cmdlet,
 
+        # Parameters passed to cmdlet
+        [Parameter(Mandatory)]
+        [hashtable]
+        $parameters,
+
+        # Cache item value
+        [Parameter(Mandatory)]
+        [AllowNull()]
+        [psobject]
+        $value
+    );
+
+    
     BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dhcp_exclusion_count'." | Write-IbLogfile | Write-Verbose;
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 
-
+    
     PROCESS {
-        $result,
-        $ipv4Exclusions,
-        $ipv6Exclusions,
-        $dhcpServers = $null;
-
-        [array]$dhcpServers = Get-IbAdDhcpServer;
+        "Adding item to cache for cmdlet '$cmdlet' and '$($parameters | ConvertTo-Json -Depth 99 -Compress)' set of parameters." | Write-IbLogfile | Write-Verbose;
 
 
-        if ($dhcpServers)
+        $item = [IbCacheItem]::new($cmdlet);
+        $item.Params = $parameters;
+        $item.Value = $value;
+        $global:infoblox_cache.Add($item) | Out-Null;
+
+
+        "Item added. Id = '$($item.Id)'. Current cache size: $($global:infoblox_cache.Count)." | Write-IbLogfile | Write-Verbose;
+
+
+        return $item;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Add-IbCacheItem.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Get-IbCacheItem.ps1
+function Get-IbCacheItem {
+    [CmdletBinding()]
+    param (
+        # Cmdlet to look for results
+        [Parameter(Mandatory)]
+        [string]
+        $cmdlet,
+
+        # Parameters passed to cmdlet
+        [Parameter(Mandatory)]
+        [hashtable]
+        $parameters
+    );
+
+    
+    BEGIN {}
+
+    
+    PROCESS {
+        $result = $null;
+
+
+        "Getting cache item for '$cmdlet' cmdlet and '$($parameters | ConvertTo-Json -Depth 99 -Compress)' set of parameters." | Write-IbLogfile | Write-Verbose;
+
+
+        [array]$result = $global:infoblox_cache | ?{$_.Cmdlet -eq $cmdlet};
+        [array]$result = $result | ?{Compare-IbHashtable $_.Params $parameters};
+
+
+        #region What if multiple items found in the cache?
+        if ($result.count -eq 0)
         {
-            [array]$ipv4Exclusions = $dhcpServers | Get-IbAdDhcpScope -ipv4 -active -primary | %{
-                Get-IbAdDhcpExclusion -dhcpServer $_.DhcpServer -scopeId $_.ScopeId -ipv4;
-            };
-
-            [array]$ipv6Exclusions = $dhcpServers | Get-IbAdDhcpScope -ipv6 -active | %{
-                Get-IbAdDhcpExclusion -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix -ipv6;
-            };
-
-
-            $result = $ipv4Exclusions + $ipv6Exclusions | Measure-Object | Select-Object -ExpandProperty Count;
+            "Nothing was found in cache." | Write-IbLogfile | Write-Verbose;
+            $result = $null;
+        }
+        elseif ($result.count -eq 1)
+        {
+            "One item found in cache. Id = '$($result[0].Id)'." | Write-IbLogfile | Write-Verbose;
+            $result[0].ReadCount++;
         }
         else
         {
-            $result = 0;
+            "Multiple items found in cache with specified parameters. Cache consistency is broken. Removing duplicate items." | Write-IbLogfile -severity Warning | Write-Warning;
+            $result | Remove-IbCacheItem;
+            "Returning 'Null'. Cache data should be refreshed." | Write-IbLogfile | Write-Verbose;
+            $result = $null;
         }
+        #endregion /What if multiple items found in the cache?
 
 
-        return @{
-            key = "site_all_dhcp_exclusion_count";
-            value = $result;
-        };
-    }
-
-
-    END {
-        "[***] Finished collection 'site_all_dhcp_exclusion_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_exclusion_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_lease_count.ps1
-function infoblox_site_all_dhcp_lease_count {
-    <#
-    .DESCRIPTION
-        The function will return a number of leases in all active scopes (IPv4 and IPv6) per each DHCP server in AD.
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dhcp_lease_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $dhcpServers,
-        $ipv4Leases,
-        $ipv6Leases = $null;
-
-
-        [array]$dhcpServers = Get-IbAdDhcpServer;
-
-
-        if ($dhcpServers)
+        if ($result)
         {
-            [array]$ipv4Leases = $dhcpServers | Get-IbAdDhcpScope -ipv4 -active -primary | %{
-                Get-IbAdDhcpServerLease -dhcpServer $_.DhcpServer -scopeId $_.ScopeId;
-            };
-            
-            [array]$ipv6Leases = $dhcpServers | Get-IbAdDhcpScope -ipv6 -active | %{
-                Get-IbAdDhcpServerLease -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix;
-            };
-
-
-            $result = $ipv4Leases.Count + $ipv6Leases.Count;
+            return $result[0];
         }
         else
         {
-            $result = 0;
+            return $result;
         }
-
-
-        return @{
-            key = "site_all_dhcp_lease_count";
-            value = $result;
-        };
     }
 
-
-    END {
-        "[***] Finished collection 'site_all_dhcp_lease_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_lease_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_option_count.ps1
-function infoblox_site_all_dhcp_option_count {
-    <#
-    .DESCRIPTION
-        The function will return a number of DHCP options in all active scopes (IPv4 and IPv6) and all reservations (also both IPv4 and IPv6) 
-        per each DHCP server in AD.
-    #>
-
-    [CmdletBinding()]
-    param ();
     
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Get-IbCacheItem.ps1
 
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Remove-IbCacheItem.ps1
+function Remove-IbCacheItem {
+    [CmdletBinding()]
+    param (
+        # Id
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
+        [string]
+        $id
+    );
+
+    
     BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dhcp_option_count'." | Write-IbLogfile | Write-Verbose;
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 
-
+    
     PROCESS {
-        $result,
-        $dhcpServers,
-        $scopeOptions,
-        $reservationOptions = $null;
+        $itemToRemove = $null;
 
 
-        [array]$dhcpServers = Get-IbAdDhcpServer;
+        "Removing item with id '$id' from cache." | Write-IbLogfile | Write-Verbose;
 
-
-        if ($dhcpServers)
+        $itemToRemove = $global:infoblox_cache | ?{$_.Id -eq $id};
+        if ($itemToRemove)
         {
-            [array]$scopeOptions = $dhcpServers | Get-IbAdDhcpScope -active -primary | Sort-Object -Property scopeId | Get-IbAdDhcpOption;
-            [array]$reservationOptions = $dhcpServers | Get-IbAdDhcpScope -active -primary | Sort-Object -Property scopeId | Get-IbAdDhcpReservation | %{
-                Get-IbAdDhcpOption -dhcpServer $_.dhcpServer -reservedIp $_.reservedIp;
-            };
-
-
-            $result = $scopeOptions.Count + $reservationOptions.Count;
+            $global:infoblox_cache.Remove($itemToRemove);
         }
         else
         {
-            $result = 0;
+            "Item with id '$id' doesn't exist in cache." | Write-IbLogfile -severity Warning | Write-Warning;
         }
-
-
-        return @{
-            key = "site_all_dhcp_option_count";
-            value = $result;
-        };
     }
 
-
+    
     END {
-        "[***] Finished collection 'site_all_dhcp_option_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_option_count.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common_cache/Remove-IbCacheItem.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_range_count.ps1
-function infoblox_site_all_dhcp_range_count {
-    <#
-    .DESCRIPTION
-        The function will return a number of ranges (which is defined as number of exclusions plus one) per each DHCP server in AD.
-    #>
-
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Compare-IbHashtable.ps1
+function Compare-IbHashtable {
     [CmdletBinding()]
-    param ();
+    param (
+        # Hashtable 1
+        [Parameter(Mandatory)]
+        [hashtable]
+        $item1,
+
+        # Hashtable 2
+        [Parameter(Mandatory)]
+        [hashtable]
+        $item2
+    );
+
     
+    BEGIN {}
 
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dhcp_range_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
+    
     PROCESS {
-        $result,
-        $ipv4Exclusions,
-        $ipv6Exclusions,
-        $dhcpServers = $null;
-
-        [array]$dhcpServers = Get-IbAdDhcpServer;
+        $result = $true;
 
 
-        if ($dhcpServers)
+        #region Compare existense of keys
+        foreach ($key in $item1.Keys)
         {
-            [array]$ipv4Exclusions = $dhcpServers | Get-IbAdDhcpScope -ipv4 -active -primary | %{
-                Get-IbAdDhcpExclusion -dhcpServer $_.DhcpServer -scopeId $_.ScopeId -ipv4;
-            };
-            if ($ipv4Exclusions.Count -gt 0)
+            if ($key -notin $item2.Keys)
             {
-                $ipv4Ranges = $ipv4Exclusions.Count + 1;
+                return $false;
+            }
+        }
+        foreach ($key in $item2.Keys)
+        {
+            if ($key -notin $item1.Keys)
+            {
+                return $false;
+            }
+        }
+        #endregion /Compare existense of keys
+
+
+        foreach ($key in $item1.Keys)
+        {
+            if ($item1[$key] -is [hashtable] -and $item2[$key] -is [hashtable])
+            {
+                if (-not (Compare-IbHashtable -item1 $item1[$key] -item2 $item2[$key]))
+                {
+                    $result = $false;
+                }
+            }
+            elseif ($item1[$key] -is [PSCustomObject] -and $item2[$key] -is [PSCustomObject])
+            {
+                $hash1 = @{}; $item1[$key].psobject.properties | %{ $hash1[$_.Name] = $_.Value };
+                $hash2 = @{}; $item2[$key].psobject.properties | %{ $hash2[$_.Name] = $_.Value };
+                if (-not (Compare-IbHashtable -item1 $hash1 -item2 $hash2))
+                {
+                    $result = $false;
+                }
+            }
+            elseif ($item1[$key].GetType() -ne $item2[$key].GetType() -or $item1[$key] -ne $item2[$key])
+            {
+                $result = $false;
+            }
+        }
+
+
+        return $result;
+    }
+
+    
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Compare-IbHashtable.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Convert-IbSubnetMask.ps1
+function Convert-IbSubnetMask
+{
+    <#
+        .SYNOPSIS
+        Convert a subnet mask to CIDR and vise versa
+
+        .DESCRIPTION
+        Convert a subnetmask like 255.255.255 to cidr (/24) and vise versa.
+                    
+        .EXAMPLE
+        Convert-IbSubnetMask -cidr 24
+
+        mask          cidr
+        ----          ----
+        255.255.255.0   24
+
+        .EXAMPLE
+        Convert-IbSubnetMask -mask 255.255.0.0
+
+        mask        cidr
+        ----        ----
+        255.255.0.0   16
+    #>
+
+    [CmdLetBinding(DefaultParameterSetName = "cidr")]
+    param( 
+        [Parameter(Mandatory, ParameterSetName = "cidr")]
+        [ValidateRange(0, 32)]
+        [int]$cidr,
+
+        [Parameter(Mandatory, ParameterSetName = "mask")]
+        [ValidateScript({
+            if ($_ -match "^(254|252|248|240|224|192|128).0.0.0$|^255.(254|252|248|240|224|192|128|0).0.0$|^255.255.(254|252|248|240|224|192|128|0).0$|^255.255.255.(255|254|252|248|240|224|192|128|0)$")
+            { return $true } else { throw "Enter a valid subnetmask (like 255.255.255.0)."; }
+        })]
+        [string]$mask
+    );
+
+    BEGIN {}
+
+
+    PROCESS {
+        switch($PSCmdlet.ParameterSetName)
+        {
+            "cidr" {                          
+                # Make a string of bits (24 to 11111111111111111111111100000000)
+                $cidr_Bits = ("1" * $cidr).PadRight(32, "0");
+                
+                # Split into groups of 8 bits, convert to Ints, join up into a string
+                $Octets = $cidr_Bits -split "(.{8})" -ne "";
+                $mask = ($Octets | %{[Convert]::ToInt32($_, 2)}) -join ".";
+            }
+
+            "mask" {
+                # Convert the numbers into 8 bit blocks, join them all together, count the 1
+                $Octets = $mask.ToString().Split(".") | %{[Convert]::ToString($_, 2)};
+                $cidr_Bits = ($Octets -join "").TrimEnd("0");
+
+                # Count the "1" (111111111111111111111111 --> /24)                     
+                $cidr = $cidr_Bits.Length;
+            }               
+        }
+
+        
+        $result = [pscustomobject]@{
+            mask = $mask;
+            cidr = $cidr;
+        };
+
+        return $result;
+    }
+
+
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Convert-IbSubnetMask.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Export-IbCsv.ps1
+function Export-IbCsv {
+    [CmdletBinding()]
+    param (
+        # Array of arrays to export
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [hashtable]
+        $item,
+
+
+        [Parameter()]
+        [string]
+        $separator = ","
+    );
+    
+    
+    BEGIN {}
+
+    
+    PROCESS {
+        $value = $item.Keys | ?{$_ -ne "key"} | %{$item[$_]} | ?{$_ -ne $null};
+        $csvString = @(
+            $item["key"],
+            $value.ToString().replace(",", ".")
+        ) -join $separator;
+        
+        Add-Content -Path $env:INFOBLOX_SE_CSVPATH -Value $csvString;
+    }
+    
+
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Export-IbCsv.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
+function Get-IbCimExceptionCustomErrorMessage {
+    [CmdletBinding()]
+    param (
+        # Value of $_.Exception.MessageId
+        [Parameter(Mandatory)]
+        $exception
+    );
+
+    
+    BEGIN {}
+
+    
+    PROCESS {
+        #region Reset variables
+        $defaultText,
+        $result = $null;
+        #endregion /Reset variables
+
+        
+        $defaultText = "[Microsoft.Management.Infrastructure.CimException]`n`t"
+        $defaultText += "Error code: '$($exception.MessageId)'. ";
+        $defaultText += $exception.ErrorData.CimInstanceProperties | ?{$_.name -eq "error_WindowsErrorMessage"} | Select-Object -ExpandProperty Value;
+        $defaultText += "`n`t";
+
+        switch ($exception.MessageId)
+        {
+            "WIN32 4"       { $result = $defaultText + "The issue could be on local computer or remote server. Too many opened files in the system, hence request cannot be completed."; }
+            "WIN32 5"       { $result = $defaultText + "Current user does not have permissions to read from the server. This error also may appear if the local computer is unable to reach remote server on port TCP 135."; }
+            "WIN32 1721"    { $result = $defaultText + "Most likely the server or local computer does not have free resources (usually - memory) to process the request."; }
+            "WIN32 1722"    { $result = $defaultText + "Most likely the server is turned off or not accessible through network."; }
+            "WIN32 1723"    { $result = $defaultText + "Most likely the server is experiencing heavy load."; }
+            "DHCP 20070"    { $result = $defaultText + "Powershell module could not connect to any AD controller."; }
+            Default         { $result = $defaultText + "--- No detailed explanation ---"; }
+        }
+
+        return $result;
+    }
+
+    
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbCimExceptionCustomErrorMessage.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbInnerExceptionMessage.ps1
+function Get-IbInnerExceptionMessage {
+    param (
+        [Parameter(Mandatory)]
+        [System.Exception]
+        $exception,
+
+        [Parameter()]
+        [string]
+        $separator = "`n`t* "
+    );
+
+
+    $message = "* " + $exception.Message;
+
+    if ($exception.InnerException)
+    {
+        $message += $separator + $(Get-IbInnerExceptionMessage -Exception $exception.InnerException);
+    }
+
+
+    return $message;
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbInnerExceptionMessage.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbNetworkUsableIpAddressCount.ps1
+function Get-IbNetworkUsableIpAddressCount {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $cidr
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $subnet,
+        $totalAddresses,
+        $usableAddresses = $null;
+
+
+        "Calculating count of usable IPv4 addresses in '$cidr' network." | Write-IbLogfile | Write-Verbose;
+
+
+        if ($cidr -notmatch "\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d{1,2}\b")
+        {
+            Write-Error "Invalid CIDR notation. Please provide a valid CIDR notation." | Write-IbLogfile -severity Error | Write-Error;
+            return $usableAddresses;
+        }
+        else
+        {
+            $subnet = $cidr.Split('/')[-1];
+            $totalAddresses = [math]::Pow(2, (32 - $subnet));
+            $usableAddresses = $totalAddresses - 2;
+            if ($usableAddresses -lt 0)
+            {
+                $usableAddresses = 0;
+            }
+    
+            "Calculated number: $usableAddresses." | Write-IbLogfile | Write-Verbose;
+        }
+
+
+        return $usableAddresses;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbNetworkUsableIpAddressCount.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbServiceCommandExceptionCustomErrorMessage.ps1
+function Get-IbServiceCommandExceptionCustomErrorMessage {
+    [CmdletBinding()]
+    param (
+        # Value of $_.Exception.MessageId
+        [Parameter(Mandatory)]
+        $exception
+    );
+
+    
+    BEGIN {}
+
+    
+    PROCESS {
+        $defaultText = "[Microsoft.PowerShell.Commands.ServiceCommandException]`n`t";
+
+        switch ($exception.HResult)
+        {
+            -2146233087     { $result = $defaultText + "The issue could also appear if the remote server is turned off or not reachable through network. Also may occure if the user does not access to the server."; }
+            Default         { $result = $defaultText + "--- No detailed explanation ---"; }
+        }
+
+        
+        return $result;
+    }
+
+    
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbServiceCommandExceptionCustomErrorMessage.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbStringMd5.ps1
+function Get-IbStringMd5 {
+    [CmdletBinding()]
+    param (
+        # A string to get hash for
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $string
+    );
+
+    
+    BEGIN {}
+
+    
+    PROCESS {
+        $result = $null;
+
+        $md5 = New-Object -TypeName "System.Security.Cryptography.MD5CryptoServiceProvider";
+        $utf8 = New-Object -TypeName "System.Text.UTF8Encoding";
+        $result = [System.BitConverter]::ToString($md5.ComputeHash($utf8.GetBytes($string))).Replace("-","").ToLower();
+
+        return $result;
+    }
+
+    
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Get-IbStringMd5.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbCsvfilePath.ps1
+function Initialize-IbCsvfilePath {
+    [CmdletBinding()]
+    param (
+        # Csv file name
+        [Parameter(Mandatory)]
+        [string]
+        $fileName
+    );
+
+    
+    $csvPath = "./@output";
+
+
+    #region Create path to the log file if it doesn't exist
+    if (-not $(Test-Path -Path "$csvPath/$fileName"))
+    {
+        New-Item -Path "$csvPath/$fileName" -Force | Out-Null;
+    }
+    #endregion /Create path to the log file if it doesn't exist
+
+
+    Write-Verbose "Setting environment variable 'INFOBLOX_SE_CSVPATH = $csvPath/$fileName' to store CSV file path.";
+    Set-Item -Path "env:INFOBLOX_SE_CSVPATH" -Value "$csvPath/$fileName";
+
+
+    $result = "$csvPath/$fileName";
+
+
+    return $result;
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbCsvfilePath.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbGlobalVariables.ps1
+function Initialize-IbGlobalVariables {
+    [CmdletBinding()]
+    param (
+        
+    );
+
+    
+    "Initializing global variables." | Write-Verbose;
+
+    $global:infoblox_errors = @();
+    $global:infoblox_servers = @();
+    $global:infoblox_cache = [System.Collections.ArrayList]::new();
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbGlobalVariables.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbLogfilePath.ps1
+function Initialize-IbLogfilePath {
+    [CmdletBinding()]
+    param (
+        [Parameter()]
+        [string]
+        $fileName,
+
+        [Parameter()]
+        [switch]
+        $powershellTranscript
+    );
+
+
+    $logPath = "./@logs"
+
+
+    if (-not $fileName)
+    {
+        $fileName = "{0}.log" -f $(Get-Date -Format "yyyy-MM-dd_HH-mm-ss");
+    }
+
+
+    $path = Join-Path -Path $logPath -ChildPath $fileName;
+
+
+    if (-not $powershellTranscript)
+    {
+        #region Create path to the log file if it doesn't exist
+        if (-not $(Test-Path -Path $path))
+        {
+            New-Item -Path $path -Force | Out-Null;
+        }
+        #endregion /Create path to the log file if it doesn't exist
+    
+        Write-Verbose "Setting environment variable 'INFOBLOX_SE_LOGPATH = $path' to store log file path.";
+        Set-Item -Path "env:INFOBLOX_SE_LOGPATH" -Value $path;
+    
+        Write-Verbose "Writing init record into log file.";
+        Write-IbLogfile "Log file initialized." -noOutput;
+    }
+    else
+    {
+        Write-Verbose "Setting environment variable 'INFOBLOX_PWSH_TRANSCRIPT_PATH = $path' to store Powershell transcript path.";
+        Set-Item -Path "env:INFOBLOX_PWSH_TRANSCRIPT_PATH" -Value $path;
+    }
+
+
+    return $path;
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Initialize-IbLogfilePath.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsErrorMessage.ps1
+function New-IbCsErrorMessage {
+    [CmdletBinding()]
+    param (
+        # Error record for the failed cmdlet
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [System.Management.Automation.ErrorRecord]
+        $errorRecord,
+
+        # Failed cmdlet with parameters
+        [Parameter()]
+        [string]
+        $failedString,
+
+        # Custom error message to put as the first string in the record
+        [Parameter()]
+        [string]
+        $customErrorMessage
+    );
+
+    
+    BEGIN {}
+
+    
+    PROCESS {
+        if ($errorRecord.InvocationInfo.InvocationName)
+        {
+            $failedCmdlet = $errorRecord.InvocationInfo.InvocationName;
+        }
+        elseif ($failedString)
+        {
+            $failedCmdlet = $failedString.Split(" ")[0];
+        }
+        elseif ($errorRecord.Exception.SerializedRemoteInvocationInfo.InvocationName)
+        {
+            $failedCmdlet = $errorRecord.Exception.SerializedRemoteInvocationInfo.InvocationName;
+        }
+        else
+        {
+            $failedCmdlet = $errorRecord.FullyQualifiedErrorId.Split(",")[1];
+        }
+
+
+        switch ($failedCmdlet)
+        {
+            "Resolve-DnsName" {
+                $errorMessage = "Error while trying to resolve '<record>' DNS record.";
+                $errorCategory = "common";
+            }
+            "Get-Service" {
+                $errorMessage = "Error while getting status of the '<serviceName>' Windows service from the '<server>' machine.";
+                $errorCategory = "common";
+            }
+            "Test-NetConnection" {
+                $errorMessage = "Error while trying to reach '<server>' machine on port TCP 135.";
+                $errorCategory = "common";
+            }
+            "Get-DnsServer" {
+                $errorMessage = "Error while trying to get DNS server object from the server '<server>'.";
+                $errorCategory = "ad_dns";
+            }
+            "Get-DhcpServerSetting" {
+                $errorMessage = "Error while trying to get DHCP server settings from the server '<server>'.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-ADUser" {
+                $errorMessage = "Error while getting users from AD ('<server>' domain controller).";
+                $errorCategory = "ad_common";
+            }
+            "Get-ADReplicationSubnet" {
+                $errorMessage = "Error while trying to get AD replication subnets from the current AD forest.";
+                $errorCategory = "ad_common";
+            }
+            "Get-ADDomainController" {
+                $errorMessage = "Error while trying to discover AD domain controller for '<domain>' domain.";
+                $errorCategory = "ad_common";
+            }
+            "Get-ADComputer" {
+                $errorMessage = "Error while trying to get computer objects from AD for '<domain>' domain.";
+                $errorCategory = "ad_common";
+            }
+            "Get-DhcpServerv4Statistics" {
+                $errorMessage = "Error while trying to get DHCP server IPv4 statistics from the server '<server>'.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv6Statistics" {
+                $errorMessage = "Error while trying to get DHCP server IPv6 statistics from the server '<server>'.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv4OptionValue" {
+                $errorMessage = "Error while trying to get DHCP options from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv6OptionValue" {
+                $errorMessage = "Error while trying to get DHCP options from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv4Reservation" {
+                $errorMessage = "Error while trying to get reservations from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv6Reservation" {
+                $errorMessage = "Error while trying to get reservations from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv4ExclusionRange" {
+                $errorMessage = "Error while trying to get exclusions ranges from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv6ExclusionRange" {
+                $errorMessage = "Error while trying to get exclusions ranges from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv4ScopeStatistics" {
+                $errorMessage = "Error while trying to get scope statistics from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv6ScopeStatistics" {
+                $errorMessage = "Error while trying to get scope statistics from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv4Lease" {
+                $errorMessage = "Error while trying to get leases from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv6Lease" {
+                $errorMessage = "Error while trying to get leases from DHCP server '<server>', '<scope>' scope.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerInDC" {
+                $errorMessage = "Error while trying to get the list of DHCP servers from AD.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv4Scope" {
+                $errorMessage = "Error while trying to get scopes from DHCP server '<server>'.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DhcpServerv6Scope" {
+                $errorMessage = "Error while trying to get scopes from DHCP server '<server>'.";
+                $errorCategory = "ad_dhcp";
+            }
+            "Get-DnsServerStatistics" {
+                $errorMessage = "Error while trying to get DNS server statistics.";
+                $errorCategory = "ad_dns";
+            }
+            "Get-DnsServerResourceRecord" {
+                $errorMessage = "Error while trying to get DNS records from DNS server '<server>'.";
+                $errorCategory = "ad_dns";
+            }
+            "Get-DnsServerZone" {
+                $errorMessage = "Error while trying to get zones from DNS server '<server>'.";
+                $errorCategory = "ad_dns";
+            }
+            "Get-ADForest" {
+                $errorMessage = "Error while trying to get AD Forest details.";
+                $errorCategory = "ad_common";
+            }
+            "Get-DnsServerZone" {
+                $errorMessage = "Error while trying to get DNS zone '<zone>' from the '<server>' server.";
+                $errorCategory = "ad_dns";
+            }
+            "Get-DnsServerForwarder" {
+                $errorMessage = "Error while trying to get general forwarding configuration for the '<server>' server.";
+                $errorCategory = "ad_dns";
+            }
+            "Get-ADReplicationSiteLink" {
+                $errorMessage = "Error while trying to get AD replication link from the current AD forest.";
+                $errorCategory = "ad_common";
+            }
+            "Get-ADReplicationSite" {
+                $errorMessage = "Error while trying to get AD sites from the current AD forest.";
+                $errorCategory = "ad_common";
+            }
+            "Get-DhcpServerv4Failover" {
+                $errorMessage = "Error while trying to get failover relationships from DHCP server '<server>'."
+                $errorCategory = "ad_dhcp";
+            }
+            #region Default
+            "Get-Content" { # This one is for unit tests
+                $errorMessage = "Test error message.";
+                $errorCategory = "unit_test";
+            }
+            Default {
+                $errorMessage = "[!!!] Cmdlet '$($errorRecord.InvocationInfo.InvocationName)' doesn't have custom error message specified. [/!!!]";
+                $errorCategory = "empty_category";
+            }
+            #endregion /Default
+        }
+
+
+        #region If custom error message was provided
+        if ($customErrorMessage)
+        {
+            $errorMessage = $customErrorMessage;
+        }
+        #endregion /If custom error message was provided
+
+
+        #region Inject $failedString into error message
+        if ($failedString)
+        {
+            $failedString = $failedString -replace "\s*= ";
+            $failedString = $failedString.Replace(";", "");
+            $failedString = $failedString.Replace("`n", "");
+            $errorMessage += "`n`t";
+            $errorMessage += "Failed cmlet: '$failedString'.";
+        }
+        #endregion /Inject $failedString into error message
+
+
+        #region Handle some specific error types
+        #region Handle Powershell 7 changes
+        if ($PSVersionTable.PSVersion -ge [System.Version]"6.0")
+        {
+            try
+            {
+                $exceptionType = $errorRecord.Exception.SerializedRemoteException.ToString().Split(": ")[0];
+                $exception = $errorRecord.Exception.SerializedRemoteException;
+            }
+            catch
+            {
+                $exceptionType = $errorRecord.Exception.GetType().FullName;
+                $exception = $errorRecord.Exception;
+            }
+        }
+        else
+        {
+            $exceptionType = $errorRecord.Exception.GetType().FullName;
+            $exception = $errorRecord.Exception;
+        }
+        #endregion /Handle Powershell 7 changes
+        
+        switch ($exceptionType)
+        {
+            "Microsoft.Management.Infrastructure.CimException" {
+                $errorMessage += "`n`t";
+                $errorMessage += Get-IbCimExceptionCustomErrorMessage -exception $exception;
+            }
+            "Microsoft.PowerShell.Commands.ServiceCommandException" {
+                $errorMessage += "`n`t";
+                $errorMessage += Get-IbServiceCommandExceptionCustomErrorMessage -exception $exception;
+            }
+            Default {
+                $additionalDetails = "";
+            }
+        }
+        #endregion /Handle some specific error types
+
+
+        $global:infoblox_errors += [pscustomobject]@{
+            category = $errorCategory;
+            message = $errorRecord.Exception.Message;
+            invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length - 1)].command -join " -> ";
+        };
+        
+        "{0}`n`t{1}{2}`n`t{3}`n`t{4}" -f `
+            $errorMessage, `
+            $(Get-IbInnerExceptionMessage -exception $errorRecord.Exception), `
+            $additionalDetails, `
+            $((Get-PSCallStack)[-1 .. -((Get-PSCallStack).length - 1)].command -join " -> ").ToString(), `
+            $errorRecord.InvocationInfo.PositionMessage `
+        | Write-IbLogfile -severity Error | Write-Error;
+    }
+
+    
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsErrorMessage.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsMetricsList.ps1
+function New-IbCsMetricsList {
+    [CmdletBinding()]
+    param (
+        # Process one metric, if specified
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [string]
+        $customMetricName,
+
+        # Process DNS metrics
+        [Parameter()]
+        [switch]
+        $processDnsMetrics,
+
+        # Process DHCP metrics
+        [Parameter()]
+        [switch]
+        $processDhcpMetrics,
+
+        # Process GEN metrics
+        [Parameter()]
+        [switch]
+        $processGenMetrics,
+
+        # Disable collection of Sites and Services data
+        [Parameter()]
+        [switch]
+        $noSitesCollection
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+
+        $defaultMetricsToProcess = @(
+            "dhcp_device_count"
+            "dhcp_lease_time"
+            "dhcp_lps"
+            "dhcp_server_count"
+            "dhcp_subnet_count"
+            "dhcp_vendor"
+            ###
+            "dns_ad_domain_count"
+            "dns_server_count"
+            "dns_caching_forwarders"
+            "dns_forward_zone_count"
+            "dns_reverse_zone_count"
+            "dns_zone_dnssec_signed_count"
+            "dns_qps"
+            "dns_record_count"
+            "dns_record_a_count"
+            "dns_record_ptr_count"
+            "dns_record_aaaa_count"
+            "dns_record_txt_count"
+            "dns_record_cname_count"
+            "dns_record_mx_count"
+            "dns_record_ns_count"
+            "dns_record_srv_count"
+            "dns_external_record_count"
+            "dns_vendor"
+            ###
+            "gen_active_ip"
+            "gen_active_user"
+            "gen_site_count"
+            "gen_vendor"
+            
+            "site_entry_name"
+            "site_entry_source"
+            "site_entry_notes"
+            "site_entry_dhcp_exclusion_count"
+            "site_entry_dhcp_fo_count"
+            "site_entry_dhcp_lease_count"
+            "site_entry_dhcp_lps"
+            "site_entry_dhcp_option_count"
+            "site_entry_dhcp_range_count"
+            "site_entry_dhcp_range_size"
+            "site_entry_dhcp_reservation_count"
+            "site_entry_dhcp_service_count"
+            "site_entry_dhcp_subnet_count"
+            "site_entry_dhcp_subnet_fo_count"
+            "site_entry_dns_qps"
+            "site_entry_dns_service_count"
+            "site_entry_server_count"
+            "site_entry_subnet_count"
+            "site_entry_user_count"
+
+            "site_all_dhcp_exclusion_count"
+            "site_all_dhcp_lease_count"
+            "site_all_dhcp_option_count"
+            "site_all_dhcp_range_count"
+            "site_all_dhcp_range_size"
+            "site_all_dhcp_reservation_count"
+            "site_all_dhcp_service_count"
+            "site_all_dhcp_subnet_count"
+            "site_all_dns_record_ad_count"
+            "site_all_dns_record_nad_count"
+            "site_all_dns_service_count"
+            "site_all_dns_zone_ad_count"
+            "site_all_dns_zone_nad_count"
+            "site_all_site_all_server_count"
+            "site_all_subnet_count"
+        );
+    }
+
+    
+    PROCESS {
+        "Building metrics list to process." | Write-IbLogfile | Write-Verbose;
+
+
+        $metricsToProcess = @();
+
+        
+        if ($customMetricName)
+        {
+            #region Handle one custom metric provided as parameter
+            if ($customMetricName -in $defaultMetricsToProcess)
+            {
+                "Metric '$customMetricName' will be processed only as per 'processOneMetricOnly' parameter." | Write-IbLogfile | Write-Verbose;
+                [array]$metricsToProcess = @($customMetricName);
             }
             else
             {
-                $ipv4Ranges = 0;
+                "Value, provided for 'processOneMetricOnly' parameter, is incorrect. Please consult with help section." | Write-IbLogfile -severity Error | Write-Error;
+                "List of supported metrics:`n$($defaultMetricsToProcess -join ', ')" | Out-String | Write-IbLogfile -severity Error | Write-Error;
             }
-            
-
-            [array]$ipv6Exclusions = $dhcpServers | Get-IbAdDhcpScope -ipv6 -active | %{
-                Get-IbAdDhcpExclusion -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix -ipv6;
-            };
-            if ($ipv6Exclusions.Count -gt 0)
+            #endregion /Handle one custom metric provided as parameter
+        }
+        else
+        {
+            #region Handle custom metrics categories to add to the list
+            if ($processDnsMetrics)
             {
-                $ipv6Ranges = $ipv6Exclusions.Count + 1;
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dns_"};
+                "DNS metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+            if ($processDhcpMetrics)
+            {
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^dhcp_"};
+                "DHCP metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+            if ($processGenMetrics)
+            {
+                $metricsToProcess += $defaultMetricsToProcess | ?{$_ -match "^gen_"};
+                "GEN metrics are added to the list." | Write-IbLogfile | Write-Verbose;
+            }
+            #endregion /Handle custom metrics categories to add to the list
+
+
+            #region Default list of metrics
+            if ($metricsToProcess.Count -eq 0)
+            {
+                "Generating default list of metrics." | Write-IbLogfile | Write-Verbose;
+                $metricsToProcess = $defaultMetricsToProcess;
+            }
+            #endregion /Default list of metrics
+
+
+            #region Disable 'site_entry / site_all' collection
+            if ($noSitesCollection)
+            {
+                "'noSitesCollection' flag was passed. SITE metrics are excluded from the list." | Write-IbLogfile | Write-Verbose;
+                $metricsToProcess = $metricsToProcess | ?{$_ -notmatch "^site_entry_" -and $_ -notmatch "^site_all_" } | %{$_};
+            }
+            #endregion /Disable 'site_entry / site_all' collection
+        }
+
+
+        Write-Output -NoEnumerate $metricsToProcess;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/New-IbCsMetricsList.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Resolve-IbDnsRecord.ps1
+function Resolve-IbDnsRecord {
+    [CmdletBinding()]
+    param (
+        # DNS record to resolve
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $record
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $cacheItem,
+        $noErrors = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        "Resolving DNS record '$record'." | Write-IbLogfile | Write-Verbose;
+
+
+        try
+        {
+            $command = "Resolve-DnsName -Name `$record";
+            $result = Resolve-DnsName -Name $record -ErrorAction Stop;
+            $noErrors = $true;
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to resolve '$record' DNS record." `
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+            $noErrors = $false;
+        }
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Resolve-IbDnsRecord.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbCsPrerequisite.ps1
+function Test-IbCsPrerequisite {
+    [CmdletBinding()]
+    param ();
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $machineType,
+        $status,
+        $tempStatus,
+        $result = $null;
+
+        
+        "Testing the local machine on compliance to pre-requisites to run current collection script." | Write-IbLogfile | Write-Verbose;
+
+
+        # Check if the local machine is workstation or server. 1 - workstation, 2 - domain controller, 3 - server.
+        $machineType = Get-CimInstance -ClassName Win32_OperatingSystem -Verbose:$false | Select-Object -ExpandProperty ProductType;
+        switch ($machineType)
+        {
+            1
+            {
+                "Current machine is a workstation." | Write-IbLogfile | Write-Verbose;
+
+                try
+                {
+                    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent();
+                    $elevatedPermissions = (New-Object Security.Principal.WindowsPrincipal $currentUser).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator);
+                }
+                catch
+                {
+                    "Error occured on detecting current user context. Possibly, script run in Linux system." | Write-IbLogfile -severity Warning | Write-Warning;
+                    $elevatedPermissions = $false;
+                }
+
+
+                if ($elevatedPermissions)
+                {
+                    $status = @();
+                    @(
+                        "Rsat.ActiveDirectory.DS-LDS.Tools",
+                        "Rsat.DHCP.Tools",
+                        "Rsat.DNS.Tools"
+                    ) | %{
+                        $tempStatus = Get-WindowsCapability -Name $_ -Online -Verbose:$false | Select-Object -ExpandProperty State;
+                        if ($tempStatus -ne "Installed")
+                        {
+                            "Component '$_' is not installed on the current machine. Please read the help section and install it." | Write-IbLogfile -severity Error | Write-Error;
+                            $status += $false;
+                        }
+                        else
+                        {
+                            "Component '$_' - installed." | Write-IbLogfile | Write-Verbose;
+                            $status += $true;
+                        }
+                    }
+                    
+                    
+                    if ($status -notcontains $false)
+                    {
+                        $result = $true;
+                    }
+                    else
+                    {
+                        $result = $false;
+                    }
+                }
+                else
+                {
+                    "Current console is not running under elevated permissions. Pre-requisite checks are not available in workstation without elevated permissions." | Write-IbLogfile -severity Warning | Write-Warning;
+                    "The script will continue without pre-requisite checks." | Write-IbLogfile -severity Warning | Write-Warning;
+
+                    $result = $true;
+                }
+            }
+
+            {$_ -in @(2, 3)}
+            {
+                "Current machine is a server." | Write-IbLogfile | Write-Verbose;
+
+                $originalProgressPreference = $global:ProgressPreference;
+                $global:ProgressPreference = "SilentlyContinue";
+                
+                $status = @();
+                @(
+                    "RSAT-AD-PowerShell",
+                    "RSAT-ADDS",
+                    "RSAT-ADLDS",
+                    "RSAT-DHCP",
+                    "RSAT-DNS-Server"
+                ) | %{
+                    $tempStatus = Get-WindowsFeature -name $_ -Verbose:$false | Select-Object -ExpandProperty Installed;
+                    if (-not $tempStatus)
+                    {
+                        "Component '$_' is not installed on the current machine. Please read the help section and install it." | Write-IbLogfile -severity Error | Write-Error;
+                        $status += $false;
+                    }
+                    else
+                    {
+                        "Component '$_' - installed." | Write-IbLogfile | Write-Verbose;
+                        $status += $true;
+                    }
+                }
+                $global:ProgressPreference = $originalProgressPreference;
+
+                
+                if ($status -notcontains $false)
+                {
+                    $result = $true;
+                }
+                else
+                {
+                    $result = $false;
+                }
+            }
+
+            Default
+            {
+                "Unable to detect current machine state. Considering as halting error. Exiting." | Write-IbLogfile -severity Error | Write-Error;
+                throw 1;
+            }
+        }
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbCsPrerequisite.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbIpInCidr.ps1
+function Test-IbIpInCidr {
+    [CmdletBinding()]
+    [OutputType([System.Boolean])]
+    param (
+        # IP Address to check
+        [Parameter(Mandatory)]
+        [ValidateScript(
+            {
+                ([System.Net.IPAddress]$_).AddressFamily -eq "InterNetwork";
+            }
+        )]
+        [string]
+        $ipAddress,
+
+
+        # Range in which to search using CIDR notation. (ippaddr/bits)
+        [Parameter(Mandatory)]
+        [ValidateScript(
+            {
+                $ip   = ($_ -split '/')[0];
+                $bits = ($_ -split '/')[1];
+
+                ([System.Net.IPAddress]($ip)).AddressFamily -eq "InterNetwork";
+
+                if (-not($bits))
+                {
+                    throw "Missing CIDR notation.";
+                }
+                elseif (-not(0..32 -contains [int]$bits))
+                {
+                    throw "Invalid CIDR notation. The valid bit range is 0 to 32.";
+                }
+            }
+        )]
+        [string]
+        $range
+    );
+
+
+    #region Split range into the address and the CIDR notation
+    [String]$cidrAddress = $range.Split('/')[0];
+    [int]$cidrBits       = $range.Split('/')[1];
+    #endregion /Split range into the address and the CIDR notation
+
+
+    #region Address from range and the search address are converted to Int32 and the full mask is calculated from the CIDR notation
+    [int]$baseAddress    = [System.BitConverter]::ToInt32((([System.Net.IPAddress]::Parse($cidrAddress)).GetAddressBytes()), 0);
+    [int]$address        = [System.BitConverter]::ToInt32(([System.Net.IPAddress]::Parse($ipAddress).GetAddressBytes()), 0);
+    [int]$mask           = [System.Net.IPAddress]::HostToNetworkOrder(-1 -shl ( 32 - $cidrBits));
+    #endregion /Address from range and the search address are converted to Int32 and the full mask is calculated from the CIDR notation
+
+
+    #region Determine whether the address is in the range
+    if (($baseAddress -band $mask) -eq ($address -band $mask))
+    {
+        return $true;
+    }
+    else
+    {
+        return $false;
+    }
+    #endregion /Determine whether the address is in the range
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbIpInCidr.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbIsPrivateIpAddress.ps1
+function Test-IbIsPrivateIpAddress {
+    [CmdletBinding()]
+    [OutputType([System.Boolean])]
+    param (
+        # Parameter help description
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [ValidateScript(
+            {
+                ([System.Net.IPAddress]$_).AddressFamily -in $("InterNetwork", "InterNetworkV6");
+            }
+        )]
+        [string]
+        $ipAddress
+    );
+
+
+    $ip = [System.Net.IPAddress]::Parse($ipAddress);
+
+    switch ($ip.AddressFamily)
+    {
+        "InterNetwork"
+        {
+            # 10.0.0.0 - 10.255.255.255
+            # 172.16.0.0 - 172.31.255.255
+            # 192.168.0.0 - 192.168.255.255
+            $bytes = $ip.GetAddressBytes();
+            if ( ($bytes[0] -eq 10) -or ($bytes[0] -eq 192 -and $bytes[1] -eq 168) -or ($bytes[0] -eq 172 -and $bytes[1] -ge 16 -and $bytes[1] -le 31) )
+            {
+                return $true;
+            } 
+            else
+            {
+                return $false;
+            }
+        }
+
+        "InterNetworkV6"
+        {
+            # - IsLoopback (e.g., ::1)
+            # - IsIPv6LinkLocal (fe80::/10)
+            # - IsIPv6SiteLocal (fec0::/10, deprecated scope but still in .Net)
+            # - IsIPv6UniqueLocal (fc00::/7)
+            if ($ip.IsLoopback -or $ip.IsIPv6LinkLocal -or $ip.IsIPv6SiteLocal -or $ip.IsIPv6UniqueLocal)
+            {
+                return $true;
             }
             else
             {
-                $ipv6Ranges = 0;
+                return $false;
+            }
+        }
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbIsPrivateIpAddress.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbServer.ps1
+function Test-IbServer {
+    [CmdletBinding()]
+    param (
+        # Server address
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $serverName,
+
+        # Server type DNS/DHCP
+        [Parameter(Mandatory)]
+        [ValidateSet("dhcp", "dns", "default")]
+        [string]
+        $serverType,
+
+        # Update $global:infoblox_servers variable if checks are implemented in this run
+        [Parameter()]
+        [switch]
+        $skipUpdateEnvironment
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $server,
+        $checkPerformed = $null;
+
+
+        "Testing if the server '$serverName' (type = '$serverType') is available." | Write-IbLogfile | Write-Verbose;
+
+
+        #region Check if the server already exist in the global array
+        switch ($serverType)
+        {
+            "dns"       { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbDnsServer" -and $_.Name -eq $serverName};  }
+            "dhcp"      { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbDhcpServer" -and $_.Name -eq $serverName}; }
+            "default"   { $server = $global:infoblox_servers | ?{$_.GetType().name -eq "IbServer" -and $_.Name -eq $serverName};     }
+        }
+        #region /Check if the server already exist in the global array
+
+
+        #region Set result value if it already exists, otherwise - run tests
+        $checkPerformed = $false;
+
+
+        switch ($serverType)
+        {
+            "dns"
+            {
+                if ($server)
+                {
+                    "Server '$($server.Name)' already checked: 'DnsWindowsServiceAvail = $($server.DnsWindowsServiceAvail)', 'DnsAvail = $($server.DnsAvail)', 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
+                    $result = $server.DnsWindowsServiceAvail -and $server.DnsAvail -and $server.Tcp135Avail;
+                }
+                else
+                {
+                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
+
+                    $server = [IbDnsServer]::new($serverName);
+                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
+                    if ($server.Tcp135Avail)
+                    {
+                        if ($PSVersionTable.PSVersion -lt [System.Version]"6.0")
+                        {
+                            $server.DnsWindowsServiceAvail = Test-IbWindowsService -server $serverName -dnsService;
+                        }
+                        else
+                        {
+                            "Script is running on Powershell version '$($PSVersionTable.PSVersion)'. Calling 'Get-Service' against remote computer is not supported. Assuming that DNS Windows service is running on the server '$serverName'." | Write-IbLogfile | Write-Verbose;
+                            $server.DnsWindowsServiceAvail = $true;
+                        }
+                    }
+                    if ($server.DnsWindowsServiceAvail)
+                    {
+                        $server.DnsAvail = Test-IbService -serverName $serverName -serviceName dns;
+                    }
+
+                    $result = $server.Tcp135Avail -and $server.DnsWindowsServiceAvail -and $server.DnsAvail;
+                    $checkPerformed = $true;
+                }
             }
 
 
-            $result = $ipv4Ranges + $ipv6Ranges;
+            "dhcp"
+            {
+                if ($server)
+                {
+                    "Server '$($server.Name)' already checked: 'DhcpWindowsServiceAvail = $($server.DhcpWindowsServiceAvail)', 'DhcpAvail = $($server.DhcpAvail)', 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
+                    $result = $server.DhcpWindowsServiceAvail -and $server.DhcpAvail -and $server.Tcp135Avail;
+                }
+                else
+                {
+                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
+
+                    $server = [IbDhcpServer]::new($serverName);
+                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
+                    if ($server.Tcp135Avail)
+                    {
+                        if ([System.Version]$PSVersionTable.PSVersion -lt [System.Version]"6.0")
+                        {
+                            $server.DhcpWindowsServiceAvail = Test-IbWindowsService -server $serverName -dhcpService;
+                        }
+                        else
+                        {
+                            "Script is running on Powershell version '$($PSVersionTable.PSVersion)'. Calling 'Get-Service' against remote computer is not supported. Assuming that DHCP Windows service is running on the server '$serverName'." | Write-IbLogfile | Write-Verbose;
+                            $server.DhcpWindowsServiceAvail = $true;
+                        }
+                    }
+                    if ($server.DhcpWindowsServiceAvail)
+                    {
+                        $server.DhcpAvail = Test-IbService -serverName $serverName -serviceName dhcp;
+                    }
+
+                    $result = $server.Tcp135Avail -and $server.DhcpWindowsServiceAvail -and $server.DhcpAvail;
+                    $checkPerformed = $true;
+                }
+            }
+
+
+            "default"
+            {
+                if ($server)
+                {
+                    "Server '$($server.Name)' already checked: 'Tcp135Avail = $($server.Tcp135Avail)'." | Write-IbLogfile | Write-Verbose;
+                    $result = $server.Tcp135Avail;
+                }
+                else
+                {
+                    "Server '$serverName' wasn't checked yet. Checking." | Write-IbLogfile | Write-Verbose;
+
+                    $server = [IbServer]::new($serverName);
+                    $server.Tcp135Avail = Test-IbWindowsServer -server $serverName;
+
+                    $result = $server.Tcp135Avail;
+                    $checkPerformed = $true;
+                }
+            }
+        }
+        #endregion /Set result value if it already exists, otherwise - run tests
+
+
+        #region Update $global:infoblox_servers variable
+        if (-not $skipUpdateEnvironment -and $checkPerformed)
+        {
+            "Adding check result '$($server | ConvertTo-Json -Compress)' to global variable." | Write-IbLogfile | Write-Verbose;
+            $global:infoblox_servers += $server;
+        }
+        #endregion /Update $global:infoblox_servers variable
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbServer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbService.ps1
+function Test-IbService {
+    [CmdletBinding()]
+    param (
+        # Server name
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $serverName,
+
+        # Service
+        [Parameter(Mandatory)]
+        [ValidateSet("dhcp", "dns")]
+        [string]
+        $serviceName
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result = $null;
+
+
+        "Testing connectivity to '$serviceName' service on '$serverName' server." | Write-IbLogfile | Write-Verbose;
+
+
+        try
+        {
+            switch ($serviceName)
+            {
+                "dns"
+                {
+                    $errorMessageCategory = "ad_dns";
+                    # '-WarningAction SilentlyContinue' here is removing the 'EnableRegistryBoot not applicable on DNS Server <server> version.' warnings.
+                    $command = "Get-DnsServer -ComputerName `$serverName";
+                    $result = Get-DnsServer -ComputerName $serverName -ErrorAction Stop -WarningAction SilentlyContinue;
+                }
+                "dhcp"
+                {
+                    $errorMessageCategory = "ad_dhcp";
+                    $command = "Get-DhcpServerSetting -ComputerName `$serverName";
+                    $result = Get-DhcpServerSetting -ComputerName $serverName -ErrorAction Stop;
+                }
+            }
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to make test query to '$serviceName' service on the '$server' machine." `
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+            $result = $false;
+        }
+
+
+        if ($result)
+        {
+            return $true;
         }
         else
         {
-            $result = 0;
+            return $false;
+        }
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbService.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsServer.ps1
+function Test-IbWindowsServer {
+    [CmdletBinding()]
+    param (
+        # Computer name
+        [Parameter(Mandatory)]
+        [string]
+        $server
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        "Verifying if '$server' machine is reachable on port TCP 135." | Write-IbLogfile | Write-Verbose;
+
+        
+        try
+        {
+            $command = "Resolve-DnsName -Name `$server";
+            $resolveDns = Resolve-DnsName -Name $server -Verbose:$false -ErrorAction Stop;
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to resolve DNS name '$server'." `
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+            $result = $false;
         }
 
 
-        return @{
-            key = "site_all_dhcp_range_count";
-            value = $result;
-        };
-    }
-
-
-    END {
-        "[***] Finished collection 'site_all_dhcp_range_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_range_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_range_size.ps1
-function infoblox_site_all_dhcp_range_size {
-    <#
-    .DESCRIPTION
-        The function will return a number as a sum of IP addresses in use and free in all IPv4 scopes per each DHCP server in the site.
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dhcp_range_size'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $dhcpServers = $null;
-
-        [array]$dhcpServers = Get-IbAdDhcpServer;
-
-
-        if ($dhcpServers)
+        if ($resolveDns)
         {
-            $result = $dhcpServers `
-                | Get-IbAdDhcpScope -ipv4 -active -primary `
-                | Get-IbAdDhcpScopeSize `
-                | Measure-Object -Sum `
-                | Select-Object -ExpandProperty Sum;
+            try
+            {
+                $originalProgressPreference = $global:ProgressPreference;
+                $global:ProgressPreference = "SilentlyContinue";
+                $command = "Test-NetConnection -ComputerName `$server -Port 135";
+                $tcpPing = Test-NetConnection -ComputerName $server -Port 135 -WarningAction SilentlyContinue -ErrorAction Stop;
+                $global:ProgressPreference = $originalProgressPreference;
+            }
+            catch
+            {
+                $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to reach '$server' machine on port TCP 135." `
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+                $result = $false;
+            }
+
+
+            if ($tcpPing.TcpTestSucceeded)
+            {
+                $result = $true;
+                "Machine '$server' is reachable." | Write-IbLogfile | Write-Verbose;
+            }
+            else
+            {
+                $result = $false;
+                "Machine '$server' is unreachable on port TCP 135." | Write-IbLogfile -severity Warning | Write-Warning;
+
+                $global:infoblox_errors += [pscustomobject]@{
+                    category = "common";
+                    message = "Machine '$server' is unreachable on port TCP 135.";
+                    invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
+                };
+            }
         }
         else
         {
-            $result = 0;
-        }
+            "DNS name '$server' could not be resolved." | Write-IbLogfile -severity Warning | Write-Warning;
+            $result = $false;
 
-
-        return @{
-            key = "site_all_dhcp_range_size";
-            value = $result;
-        };
-    }
-
-
-    END {
-        "[***] Finished collection 'site_all_dhcp_range_size'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_range_size.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_reservation_count.ps1
-function infoblox_site_all_dhcp_reservation_count {
-    <#
-    .DESCRIPTION
-        The function will return a number of reservations in all active scopes (IPv4 and IPv6) on all DHCP servers in AD.
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dhcp_reservation_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $dhcpServers,
-        $ipv4Reservations,
-        $ipv6Reservations = $null;
-
-
-        [array]$dhcpServers = Get-IbAdDhcpServer;
-
-
-        if ($dhcpServers)
-        {
-            [array]$ipv4Reservations = $dhcpServers | Get-IbAdDhcpScope -ipv4 -active -primary | %{
-                Get-IbAdDhcpReservation -dhcpServer $_.DhcpServer -scopeId $_.ScopeId;
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "common";
+                message = "DNS name '$server' could not be resolved.";
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
             };
+        }
+        
 
-            [array]$ipv6Reservations = $dhcpServers | Get-IbAdDhcpScope -ipv6 -active | %{
-                Get-IbAdDhcpReservation -dhcpServer $_.DhcpServer -scopePrefix $_.Prefix;
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsServer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsService.ps1
+function Test-IbWindowsService {
+    [CmdletBinding(DefaultParameterSetName = "ServiceName")]
+    param (
+        # Computer name
+        [Parameter(Mandatory)]
+        [string]
+        $server,
+
+        # Service name
+        [Parameter(Mandatory, ParameterSetName = "ServiceName")]
+        [string]
+        $serviceName,
+
+        # Check DNS service
+        [Parameter(ParameterSetName = "DnsService")]
+        [switch]
+        $dnsService,
+
+        # Check DHCP service
+        [Parameter(ParameterSetName = "DhcpService")]
+        [switch]
+        $dhcpService
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $serviceStatus = $null;
+
+        
+        if ($dnsService)
+        {
+            $serviceName = "DNS";
+        }
+        if ($dhcpService)
+        {
+            $serviceName = "DHCPServer";
+        }
+
+
+        "Verifying if '$serviceName' Windows service is running on the '$server' machine." | Write-IbLogfile | Write-Verbose;
+        
+        try
+        {
+            $command = "Get-Service -Name `$serviceName -ComputerName `$server";
+            $serviceStatus = Get-Service -Name $serviceName -ComputerName $server -ErrorAction Stop;
+
+            $result = [pscustomobject]@{
+                name = $serviceStatus.name;
+                displayName = $serviceStatus.DisplayName;
+                status = $serviceStatus.Status;
+                startType = $serviceStatus.StartType;
+                running = if ($serviceStatus.Status -eq "Running") { $true } else { $false };
             };
-
-
-            $result = $ipv4Reservations.Count + $ipv6Reservations.Count;
         }
-        else
+        catch
         {
-            $result = 0;
-        }
-
-
-        return @{
-            key = "site_all_dhcp_reservation_count";
-            value = $result;
-        };
-    }
-
-
-    END {
-        "[***] Finished collection 'site_all_dhcp_reservation_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_reservation_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_service_count.ps1
-function infoblox_site_all_dhcp_service_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all authorized DHCP servers in AD forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dhcp_service_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result = $null;
-
-        [array]$result = Get-IbAdDhcpServer;
-        
-        return @{
-            key = "site_all_dhcp_service_count";
-            value = $result.count;
-        };
-    }
-    
-
-    END {
-        "[***] Finished collection 'site_all_dhcp_service_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_service_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_subnet_count.ps1
-function infoblox_site_all_dhcp_subnet_count {
-    <#
-    .DESCRIPTION
-        The function return number of all active scopes (IPv4 and IPv6) from all DHCP servers in AD forest. Only unique combinations of 'Server', 'ScopeId' and
-        'Prefix' will be counted.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'infoblox_site_all_dhcp_subnet_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result = $null;
-
-
-        [array]$result = Get-IbAdDhcpServer | Get-IbAdDhcpScope -active -primary;
-        #region Add new property 'ServerScopeId' that will represent combination 'Server', 'ScopeId' and 'Prefix' and select unique objects on that property
-        $result | %{ $_ | Add-Member -MemberType NoteProperty -Name "ServerScopeId" -Value "$($_.DhcpServer)__$($_.ScopeId)__$($_.Prefix)" -Force };
-        $result = $result | Sort-Object -Unique ServerScopeId;
-        #endregion /Add new property 'ServerScopeId' that will represent combination 'Server', 'ScopeId' and 'Prefix' and select unique objects on that property
-        
-
-        return @{
-            key = "site_all_dhcp_subnet_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'infoblox_site_all_dhcp_subnet_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dhcp_subnet_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_record_ad_count.ps1
-function infoblox_site_all_dns_record_ad_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all DNS records from all AD-integrated DNS zones from all DNS servers in the AD forest.
-    #>
-    
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dns_record_ad_count'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains,
-        $zones,
-        $zone = $null;
-
-
-        $result = @();
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$zones = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Get-IbAdDnsZone `
-            | ?{ $_.IsDsIntegrated } `
-            | Sort-Object -Unique -Property ZoneName;
-
-        foreach ($zone in $zones)
-        {
-            $result += Get-IbAdDnsRecord -dnsServer $zone.DnsServer -zoneName $zone.ZoneName;
-        }
-        $result = $result | ?{$_};
-        
-        
-        return @{
-            key = "site_all_dns_record_ad_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'site_all_dns_record_ad_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_record_ad_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_record_nad_count.ps1
-function infoblox_site_all_dns_record_nad_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all DNS records from all NON-AD-integrated DNS zones from all DNS servers in the AD forest.
-    #>
-    
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dns_record_nad_count'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains,
-        $zones,
-        $zone = $null;
-
-
-        $result = @();
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$zones = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Get-IbAdDnsZone `
-            | ?{ -not $_.IsDsIntegrated } `
-            | Sort-Object -Unique -Property ZoneName;
-
-        foreach ($zone in $zones)
-        {
-            $result += Get-IbAdDnsRecord -dnsServer $zone.DnsServer -zoneName $zone.ZoneName;
-        }
-        $result = $result | ?{$_};
-        
-        
-        return @{
-            key = "site_all_dns_record_nad_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'site_all_dns_record_nad_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_record_nad_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_service_count.ps1
-function infoblox_site_all_dns_service_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all authorized DNS servers in AD forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dns_service_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$result = $domains | Get-IbAdDnsServer | Sort-Object -Unique;
-
-        
-        return @{
-            key = "site_all_dns_service_count";
-            value = $result.count;
-        };
-    }
-    
-
-    END {
-        "[***] Finished collection 'site_all_dns_service_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_service_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_zone_ad_count.ps1
-function infoblox_site_all_dns_zone_ad_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all AD-integrated DNS zones in all DNS servers in AD forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dns_zone_ad_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$result = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Get-IbAdDnsZone `
-            | ?{ $_.IsDsIntegrated } `
-            | Sort-Object -Unique -Property ZoneName;
-
-        
-        return @{
-            key = "site_all_dns_zone_ad_count";
-            value = $result.count;
-        };
-    }
-    
-
-    END {
-        "[***] Finished collection 'site_all_dns_zone_ad_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_zone_ad_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_zone_nad_count.ps1
-function infoblox_site_all_dns_zone_nad_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all non-AD-integrated DNS zones in all DNS servers in AD forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_dns_zone_nad_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$result = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Get-IbAdDnsZone `
-            | ?{ -not $_.IsDsIntegrated } `
-            | Sort-Object -Unique -Property ZoneName;
-
-        
-        return @{
-            key = "site_all_dns_zone_nad_count";
-            value = $result.count;
-        };
-    }
-    
-
-    END {
-        "[***] Finished collection 'site_all_dns_zone_nad_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_dns_zone_nad_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_site_all_server_count.ps1
-function infoblox_site_all_site_all_server_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all authorized DNS servers in AD forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_site_all_server_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $dnsServers,
-        $dhcpServers,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-
-        [array]$dnsServers = $domains | Get-IbAdDnsServer | Sort-Object -Unique;
-        [array]$dhcpServers = Get-IbAdDhcpServer;
-        [array]$result = $dnsServers + $dhcpServers | Sort-Object -Unique;
-
-        
-        return @{
-            key = "site_all_site_all_server_count";
-            value = $result.count;
-        };
-    }
-    
-
-    END {
-        "[***] Finished collection 'site_all_site_all_server_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_site_all_server_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_subnet_count.ps1
-function infoblox_site_all_subnet_count {
-    <#
-    .DESCRIPTION
-        The function will return a number of unique network addresses, that are defined in AD Sites and Services snap-in and DHCP scope in all DHCP servers in AD.
-        Only string values will be taken into account here. No address calculations will be taken. DHCP scopes netmask property will be converted into CIDR notation.
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'site_all_subnet_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $dhcpScopes,
-        $dhcpSubnets,
-        $adSubnets,
-        $dhcpServers = $null;
-
-        [array]$dhcpServers = Get-IbAdDhcpServer;
-
-
-        if ($dhcpServers)
-        {
-            [array]$dhcpScopes = $dhcpServers | Get-IbAdDhcpScope -active -primary;
-        }
-        else
-        {
-            $result = @();
-        }
-
-        [array]$adSubnets = Get-IbAdSubnet;
-        $result = $($adSubnets.Name; $dhcpScopes.SubnetAddress) | Sort-Object -Unique | Measure-Object | Select-Object -ExpandProperty Count;
-
-
-        return @{
-            key = "site_all_subnet_count";
-            value = $result;
-        };
-    }
-
-
-    END {
-        "[***] Finished collection 'site_all_subnet_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/site_all/site_all_subnet_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_dnssec_used.ps1
-function infoblox_dns_ext_dnssec_used {
-    <#
-    .DESCRIPTION
-        The function will return 0 or 1, depending on the the usage of DNSSEC.
-
-        1 - if (at least one DNSSEC record exist in any 'external' DNS server in AD forest)
-        0 - otherwise
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_ext_dnssec_used'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains,
-        $dnssecRecords = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$dnssecRecords = $domains | Get-IbAdDnsServer | Sort-Object -Unique | Get-IbAdDnsZone -forward -external | Get-IbAdDnsRecord -type Dnssec;
-
-        
-        if ($dnssecRecords)
-        {
-            $result = 1;
-        }
-        else
-        {
-            $result = 0
-        };
-
-        
-        return @{
-            key = "dns_ext_dnssec_used";
-            value = $result;
-        };
-    }
-
-    
-    END {
-        "[***] Finished collection 'dns_ext_dnssec_used'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_dnssec_used.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_forward_zone_count.ps1
-function infoblox_dns_ext_forward_zone_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all 'external' forward DNS zones from all DNS servers in the AD forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_ext_forward_zone_count'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains,
-        $dnsServers = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$dnsServers = $domains | Get-IbAdDnsServer | Sort-Object -Unique;
-        [array]$result = $dnsServers | Get-IbAdDnsZone -forward -external | Sort-Object -Unique -Property ZoneName;
-
-        
-        return @{
-            key = "dns_ext_forward_zone_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'dns_ext_forward_zone_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_forward_zone_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_ipv6_used.ps1
-function infoblox_dns_ext_ipv6_used {
-    <#
-    .DESCRIPTION
-        The function will return 0 or 1, depending on the usage of IPv6 protocol.
-
-        1 - if (there are AAAA records in the 'external' DNS zones in all DNS servers in AD forest (conditions apply here based on IPv4/IPv6 ratio))
-            OR
-            if (there are IPv6 AD replication subnets exist)
-        0 - otherwise
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-    
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_ext_ipv6_used'." | Write-IbLogfile | Write-Verbose;
-    }
-
-    
-    PROCESS {
-        $result,
-        $domains,
-        $ipv6Zones,
-        $ipv6Subnets = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$ipv6Zones = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Select-IbAdDnsServer -external `
-            | Get-IbAdDnsZone -external -ipv6;
-        [array]$ipv6Subnets = Get-IbAdSubnet -ipv6;
-
-
-        if ($ipv6Zones -or $ipv6Subnets)
-        {
-            $result = 1;
-        }
-        else
-        {
-            $result = 0;
+            $_ | New-IbCsErrorMessage -customErrorMessage "Error while getting status of the '$serviceName' Windows service from the '$server' machine." `
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+            $result = $false;
         }
 
 
-        return @{
-            key = "dns_ext_ipv6_used";
-            value = $result;
-        };
-    }
-
-    
-    END {
-        "[***] Finished collection 'dns_ext_ipv6_used'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_ipv6_used.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_qps.ps1
-function infoblox_dns_ext_qps {
-    <#
-    .DESCRIPTION
-        The function will detect all 'external' DNS servers in AD forest, get DNS Server statistics, and from it - TotalQueries and CurrentUptime metrics.
-        Total queries number divided by uptime secods will give QPS metric for all DNS servers (internal).
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-    
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_ext_qps'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [decimal]$result = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Select-IbAdDnsServer -external `
-            | Get-IbAdDnsZone -external `
-            | Sort-Object -Unique DnsServer `
-            | Select-Object -ExpandProperty DnsServer `
-            | Get-IbAdDnsServerQps `
-            | Measure-Object -Sum | Select-Object -ExpandProperty Sum;
-        [decimal]$result = [Math]::Round($result, 2);
-
-
-        return @{
-            key = "dns_ext_qps";
-            value = $result;
-        };
-    }
-    
-
-    END {
-        "[***] Finished collection 'dns_ext_qps'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_qps.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_record_count.ps1
-function infoblox_dns_ext_record_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all DNS records from all 'external' DNS zones from all DNS servers in the AD forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_ext_record_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains,
-        $zones,
-        $zone = $null;
-
-        
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$zones = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Select-IbAdDnsServer -external `
-            | Get-IbAdDnsZone -external `
-            | Sort-Object -Unique -Property ZoneName;
-
-
-        $result = @();
-        foreach ($zone in $zones)
+        if ($result -and -not $result.running)
         {
-            $result += Get-IbAdDnsRecord -dnsServer $zone.DnsServer -zoneName $zone.ZoneName;
-        }
-        $result = $result | ?{$_};
-        
-
-        return @{
-            key = "dns_ext_record_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'dns_ext_record_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_record_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_reverse_zone_count.ps1
-function infoblox_dns_ext_reverse_zone_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all 'external' reverse DNS zones from all DNS servers in the forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_ext_reverse_zone_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains,
-        $dnsServers = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$dnsServers = $domains | Get-IbAdDnsServer | Sort-Object -Unique | Select-IbAdDnsServer -external;
-        [array]$result = $dnsServers | Get-IbAdDnsZone -external -reverse | Sort-Object -Unique -Property ZoneName;
-
-
-        return @{
-            key = "dns_ext_reverse_zone_count";
-            value = $result.count;
-        };
-    }
-    
-
-    END {
-        "[***] Finished collection 'dns_ext_reverse_zone_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_reverse_zone_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_server_count.ps1
-function infoblox_dns_ext_server_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all DNS servers, that have 'external' DNS zones, in the forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_ext_server_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$result = $domains | Get-IbAdDnsServer | Sort-Object -Unique | Select-IbAdDnsServer -external;
-
-        
-        return @{
-            key = "dns_ext_server_count";
-            value = $result.count;
-        };
-    }
-
-    
-    END {
-        "[***] Finished collection 'dns_ext_server_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_ext_server_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_ad_domain_count.ps1
-function infoblox_dns_int_ad_domain_count {
-    <#
-    .DESCRIPTION
-        The function will return number AD domains in the forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_ad_domain_count'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result = $null;
-
-
-        [array]$result = (Get-IbAdForest).Domains;
-
-
-        return @{
-            key = "dns_int_ad_domain_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'dns_int_ad_domain_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_ad_domain_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_caching_forwarders.ps1
-function infoblox_dns_int_caching_forwarders {
-    <#
-    .DESCRIPTION
-        The function will return number of all DNS servers in AD forest with explicit or conditional forwarding configured.
-    #>
-    
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_caching_forwarders'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$result = $domains | Get-IbAdDnsServer | Sort-Object -Unique | Get-IbAdDnsForwarderConfiguration | ?{$_.general -or $_.conditional};
-
-        
-        return @{
-            key = "dns_int_caching_forwarders";
-            value = $result.count;
-        };
-    }
-    
-
-    END {
-        "[***] Finished collection 'dns_int_caching_forwarders'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_caching_forwarders.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_dnssec_used.ps1
-function infoblox_dns_int_dnssec_used {
-    <#
-    .DESCRIPTION
-        The function will return 0 or 1, depending on the the usage of DNSSEC.
-
-        1 - if (at least one DNSSEC record exist in any 'internal' DNS server in AD forest)
-        0 - otherwise
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_dnssec_used'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains,
-        $dnssecRecords = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$dnssecRecords = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Get-IbAdDnsZone -forward -internal `
-            | Get-IbAdDnsRecord -type Dnssec;
-
-        
-        if ($dnssecRecords)
-        {
-            $result = 1;
-        }
-        else
-        {
-            $result = 0;
-        };
-
-
-        return @{
-            key = "dns_int_dnssec_used";
-            value = $result;
-        };
-    }
-
-    
-    END {
-        "[***] Finished collection 'dns_int_dnssec_used'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_dnssec_used.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_forward_zone_count.ps1
-function infoblox_dns_int_forward_zone_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all 'internal' forward DNS zones from all DNS servers in the AD forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_forward_zone_count'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$result = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Get-IbAdDnsZone -forward -internal `
-            | Sort-Object -Unique -Property ZoneName;
-
-        
-        return @{
-            key = "dns_int_forward_zone_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'dns_int_forward_zone_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_forward_zone_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_ipv6_used.ps1
-function infoblox_dns_int_ipv6_used {
-    <#
-    .DESCRIPTION
-        The function will return 0 or 1, depending on the usage of IPv6 protocol.
-
-        1 - if (there are AAAA records in the 'internal' DNS zones in all DNS servers in AD forest (conditions apply here based on IPv4/IPv6 ratio))
-            OR
-            if (there are IPv6 AD replication subnets exist)
-        0 - otherwise
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_ipv6_used'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains,
-        $ipv6Zones,
-        $ipv6Subnets = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$ipv6Zones = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Select-IbAdDnsServer -internal `
-            | Get-IbAdDnsZone -internal -ipv6;
-        [array]$ipv6Subnets = Get-IbAdSubnet -ipv6;
-
-
-        if ($ipv6Zones -or $ipv6Subnets)
-        {
-            $result = 1;
-        }
-        else
-        {
-            $result = 0;
-        }
-
-
-        return @{
-            key = "dns_int_ipv6_used";
-            value = $result;
-        };
-    }
-
-    
-    END {
-        "[***] Finished collection 'dns_int_ipv6_used'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_ipv6_used.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_qps.ps1
-function infoblox_dns_int_qps {
-    <#
-    .DESCRIPTION
-        The function will detect all 'internal' DNS servers in AD forest, get DNS Server statistics, and from it - TotalQueries and CurrentUptime metrics.
-        Total queries number divided by uptime secods will give QPS metric for all DNS servers (internal).
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_qps'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [decimal]$result = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Select-IbAdDnsServer -internal `
-            | Get-IbAdDnsZone -internal `
-            | Sort-Object -Unique DnsServer `
-            | Select-Object -ExpandProperty DnsServer `
-            | Get-IbAdDnsServerQps `
-            | Measure-Object -Sum `
-            | Select-Object -ExpandProperty Sum;
-        [decimal]$result = [Math]::Round($result, 2);
-
-        
-        return @{
-            key = "dns_int_qps";
-            value = $result;
-        };
-    }
-
-
-    END {
-        "[***] Finished collection 'dns_int_qps'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_qps.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_record_count.ps1
-function infoblox_dns_int_record_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all DNS records from all 'internal' DNS zones from all DNS servers in the AD forest.
-    #>
-    
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_record_count'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains,
-        $zones,
-        $zone = $null;
-
-
-        $result = @();
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$zones = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Select-IbAdDnsServer -internal `
-            | Get-IbAdDnsZone -internal `
-            | Sort-Object -Unique -Property ZoneName;
-
-        foreach ($zone in $zones)
-        {
-            $result += Get-IbAdDnsRecord -dnsServer $zone.DnsServer -zoneName $zone.ZoneName;
-        }
-        $result = $result | ?{$_};
-        
-        
-        return @{
-            key = "dns_int_record_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'dns_int_record_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_record_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_reverse_zone_count.ps1
-function infoblox_dns_int_reverse_zone_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all 'internal' reverse DNS zones from all DNS servers in the forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_reverse_zone_count'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$result = $domains `
-            | Get-IbAdDnsServer `
-            | Sort-Object -Unique `
-            | Select-IbAdDnsServer -internal `
-            | Get-IbAdDnsZone -reverse -internal `
-            | Sort-Object -Unique -Property ZoneName;
-
-        
-            return @{
-                key = "dns_int_reverse_zone_count";
-                value = $result.count;
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "common";
+                message = "Server '$server' is running, but windows service '$serviceName' is not in the 'Running' state.";
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length)].command -join " -> ";
             };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'dns_int_reverse_zone_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_reverse_zone_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_server_count.ps1
-function infoblox_dns_int_server_count {
-    <#
-    .DESCRIPTION
-        The function will return number of all DNS servers, that does not have 'external' DNS zones (i.e., has 'internal' only), in the forest.
-    #>
-
-    [CmdletBinding()]
-    param ();
-    
-
-    BEGIN {
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_server_count'." | Write-IbLogfile | Write-Verbose;
-    }
-    
-
-    PROCESS {
-        $result,
-        $domains = $null;
-
-
-        [array]$domains = (Get-IbAdForest).Domains;
-        [array]$result = $domains | Get-IbAdDnsServer | Sort-Object -Unique | Select-IbAdDnsServer -internal;
-        
-        
-        return @{
-            key = "dns_int_server_count";
-            value = $result.count;
-        };
-    }
-    
-    
-    END {
-        "[***] Finished collection 'dns_int_server_count'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
-    }
-}
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_server_count.ps1
-
-
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_vendor.ps1
-function infoblox_dns_int_vendor {
-    <#
-    .DESCRIPTION
-        The function will return AD Forest functional level.
-    #>
-    
-    [CmdletBinding()]
-    param ();
-
-
-    BEGIN {
-        
-        " " | Write-IbLogfile | Write-Verbose;
-        "[***] Collection 'dns_int_vendor'." | Write-IbLogfile | Write-Verbose;
-    }
-
-
-    PROCESS {
-        $result = $null;
-
-        
-        $result = Get-IbAdForest | Select-Object -ExpandProperty ForestMode;
-        if (-not $result)
+            "Server '$server' is running, but windows service '$serviceName' is not in the 'Running' state." | Write-IbLogfile -severity Warning | Write-Warning;
+            
+            $result = $false;
+        }
+        elseif ($result -and $result.running)
         {
-            $result = "";
+            $result = $true;
         }
 
 
-        return @{
-            key = "dns_int_vendor";
-            value = $result;
-        };
+        return $result;
     }
-    
+
     
     END {
-        "[***] Finished collection 'dns_int_vendor'." | Write-IbLogfile | Write-Verbose;
-        " " | Write-IbLogfile | Write-Verbose;
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/@@infoblox_collection/dns/dns_int_vendor.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Test-IbWindowsService.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Write-IbLogfile.ps1
+function Write-IbLogfile {
+    [CmdletBinding()]
+    param (
+        # Message passed to the log
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [ValidateNotNullorEmpty()]
+        [string]
+        $text,
+
+        # Message severity passed to the log
+        [Parameter()]
+        [ValidateNotNullorEmpty()]
+        [ValidateSet("Info", "Error", "Warning")]
+        [string]
+        $severity = "Info",
+
+        # Do not return $text as output
+        [Parameter()]
+        [switch]
+        $noOutput
+    );
+
+
+    BEGIN {
+        $logPath = $env:INFOBLOX_SE_LOGPATH;
+    }
+ 
+
+    PROCESS {
+        $datetimeStamp = Get-Date -Format "yyyy-MM-dd HH-mm-ss->fff";
+        
+        #region Format spaces
+        if ($severity.Length -le 7)
+        {
+            $severityStamp = "[$severity]";
+            for ($i = $severity.Length; $i -le 7; $i++)
+            {
+                $severityStamp = $severityStamp + " ";
+            }
+        }
+        #endregion /Format spaces
+
+
+        try
+        {
+            Add-Content -Path $logPath -Encoding UTF8 -Value $($datetimeStamp + "  $severityStamp " + $text) -ErrorAction Stop;
+        }
+        catch
+        {
+            Write-Error "Error while trying to write the log file '$logPath'.";
+            throw $_;
+        }
+
+
+        if (-not $noOutput)
+        {
+            return $text;
+        }
+    }
+ 
+
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/common/Write-IbLogfile.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsForwarderConfiguration.ps1
@@ -6617,7 +5778,7 @@ function Get-IbAdDnsForwarderConfiguration {
         {
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
-                $command = {Get-DnsServerForwarder -ComputerName $dnsServer}.ToString();
+                $command = "Get-DnsServerForwarder -ComputerName `$dnsServer";
                 $generalForwardingConfig = Get-DnsServerForwarder -ComputerName $dnsServer -ErrorAction Stop;
             }
             else
@@ -6638,7 +5799,7 @@ function Get-IbAdDnsForwarderConfiguration {
         {
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
-                $command = {Get-DnsServerZone -ComputerName $dnsServer}.ToString();
+                $command = "Get-DnsServerZone -ComputerName `$dnsServer";
                 [array]$forwarderZones = Get-DnsServerZone -ComputerName $dnsServer -ErrorAction Stop | ?{$_.ZoneType -eq "Forwarder"};
             }
             else
@@ -6697,7 +5858,7 @@ function Get-IbAdDnsRecord {
 
         # DNS record type to return
         [Parameter()]
-        [ValidateSet("All", "Dnssec", "A", "AAAA", "PTR", "Ns")]
+        [ValidateSet("All", "DNSSEC", "A", "AAAA", "PTR", "NS", "TXT", "SRV", "MX", "CNAME")]
         [string]
         $type = "All"
     );
@@ -6709,8 +5870,10 @@ function Get-IbAdDnsRecord {
 
     
     PROCESS {
-        $result,
+        $result = @();
         $noErrors,
+        $params,
+        $command,
         $cacheItem = $null;
 
 
@@ -6739,10 +5902,8 @@ function Get-IbAdDnsRecord {
         }
 
 
-        if ($type -eq "Dnssec")
+        if ($type -eq "DNSSEC")
         {
-            "Getting DNSSEC records (NSEC, RRSIG, DS, DNSKEY, CDNSKEY, etc.) from the '$zoneName' zone on '$dnsServer' server." | Write-IbLogfile | Write-Verbose;
-
             $dnssecRecordTypes = @(
                 "NSEC",
                 "NSEC3",
@@ -6751,6 +5912,8 @@ function Get-IbAdDnsRecord {
                 "DS",
                 "NSEC3PARAM"
             );
+            "Getting DNSSEC records ($($dnssecRecordTypes -join ', ')) from the '$zoneName' zone on '$dnsServer' server." | Write-IbLogfile | Write-Verbose;
+
 
             $params = $dnssecRecordTypes | %{
                 [hashtable]@{
@@ -6762,7 +5925,7 @@ function Get-IbAdDnsRecord {
         }
 
 
-        if ($type -notin @("All", "Dnssec"))
+        if ($type -notin @("All", "DNSSEC"))
         {
             "Getting '$type' records from the '$zoneName' zone on '$dnsServer' server." | Write-IbLogfile | Write-Verbose;
             $params[0].RRType = $type;
@@ -6776,9 +5939,13 @@ function Get-IbAdDnsRecord {
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
                 [array]$result = $params | %{
-                    $command = $ExecutionContext.InvokeCommand.ExpandString({Get-DnsServerResourceRecord @_}.ToString());
+                    $command = $ExecutionContext.InvokeCommand.ExpandString("Get-DnsServerResourceRecord @_");
                     Get-DnsServerResourceRecord @_ -ErrorAction Stop;
                 };
+                if (-not $result)
+                {
+                    $result = @();
+                }
                 $noErrors = $true;
             }
             else
@@ -6849,7 +6016,7 @@ function Get-IbAdDnsServer {
 
 
         #region Get list of DNS servers
-        [array]$result = Get-IbAdDnsRecord -dnsServer $domain -zoneName $domain -type Ns `
+        [array]$result = Get-IbAdDnsRecord -dnsServer $domain -zoneName $domain -type "NS" `
             | ?{$_.HostName -eq "@"} `
             | %{$_.RecordData.NameServer.TrimEnd(".")};
         $noErrors = $true;
@@ -6916,7 +6083,7 @@ function Get-IbAdDnsServerQps {
         {
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
-                $command = {Get-DnsServerStatistics -ComputerName $dnsServer}.ToString();
+                $command = "Get-DnsServerStatistics -ComputerName `$dnsServer";
                 $statistics = Get-DnsServerStatistics -ComputerName $dnsServer -ErrorAction Stop;
                 $noErrors = $true;
             }
@@ -6980,21 +6147,6 @@ function Get-IbAdDnsZone {
         # DNS server FQDN
         [Parameter(Mandatory, ValueFromPipeline)][string]$dnsServer,
 
-        # Get only 'external' zones
-        [Parameter()][switch]$external,
-
-        # Get only 'internal' zones
-        [Parameter()][switch]$internal,
-
-        # Ratio to identify if the zone is 'external' or 'internal'
-        [Parameter()][decimal]$extIntRatio = 0.3,
-
-        # Ratio to identify if the zone contain IPv6 records
-        [Parameter()][decimal]$ipv6Ratio = 0.3,
-
-        # Get only 'ipv6' zones
-        [Parameter()][switch]$ipv6,
-
         # Get only 'forward' zones
         [Parameter(ParameterSetName = "Forward")][switch]$forward,
 
@@ -7005,20 +6157,16 @@ function Get-IbAdDnsZone {
     
     BEGIN {
         "Running '$($MyInvocation.InvocationName)'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
-
-        $privateIpv4Ranges = "(^127\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)";
-        $privateIpv6Ranges = "^f[cd][0-9a-fA-F]{2}:"; # fc00::/7
-        $localIpv6Ranges = "^fe[89abAB][0-9a-fA-F]:"; # fe80::/10
     }
 
     
     PROCESS {
         $result,
-        $zones,
         $records,
         $noErrors,
         $zoneRangePrefix,
         $cacheItem = $null;
+        $zones = @();
 
 
         #region Look for results in cache
@@ -7037,8 +6185,8 @@ function Get-IbAdDnsZone {
             "Getting '$($PSCmdlet.ParameterSetName)' zones from the DNS server '$dnsServer'." | Write-IbLogfile | Write-Verbose;
             if (Test-IbServer -serverName $dnsServer -serverType dns)
             {
-                $command = {Get-DnsServerZone -ComputerName $dnsServer}.ToString();
-                $zones = Get-DnsServerZone -ComputerName $dnsServer -ErrorAction Stop | ?{-not $_.IsAutoCreated -and $_.ZoneType -ne "Forwarder" -and $_.ZoneName -ne "TrustAnchors"};
+                $command = "Get-DnsServerZone -ComputerName `$dnsServer";
+                [array]$zones = Get-DnsServerZone -ComputerName $dnsServer -ErrorAction Stop | ?{-not $_.IsAutoCreated -and $_.ZoneType -ne "Forwarder" -and $_.ZoneName -ne "TrustAnchors"};
                 $noErrors = $true;
             }
             else
@@ -7055,113 +6203,7 @@ function Get-IbAdDnsZone {
         #endregion /Get all zones
 
 
-        #region Loop through zones and count A/AAAA records
-        foreach ($zone in $zones)
-        {
-            "Classifying '$($zone.ZoneName)' zone." | Write-IbLogfile | Write-Verbose;
-
-
-            #region Add properties to the object
-            # Adding DnsServer property to results to use in other functions
-            $zone | Add-Member -MemberType NoteProperty -Name "DnsServer" -Value $dnsServer;
-
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_ext_zone" -Value $null;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_int_zone" -Value $null;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_ipv6_zone" -Value $null;
-
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_records_count" -Value 0;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_ext_ipv4_count" -Value 0;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_int_ipv4_count" -Value 0;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_ext_ipv6_count" -Value 0;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_int_ipv6_count" -Value 0;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_loc_ipv6_count" -Value 0;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_ext_reverse_count" -Value 0;
-            $zone | Add-Member -MemberType NoteProperty -Name "infbxl_int_reverse_count" -Value 0;
-            #endregion /Add properties to the object
-
-
-            #region Getting all records
-            $records = @("A", "AAAA", "PTR") | %{
-                Get-IbAdDnsRecord -dnsServer $dnsServer -zoneName $zone.ZoneName -type $_;
-            };
-            #endregion /Getting all records
-
-
-            #region Counting various types of records
-            $zone.infbxl_records_count = $records | ?{$_.RecordType -in @("A", "AAAA", "PTR")} | Measure-Object | Select-Object -ExpandProperty Count;
-
-            $zone.infbxl_int_ipv4_count = $records `
-                | ?{ $_.RecordType -eq "A" -and $_.RecordData.IPv4Address -match $privateIpv4Ranges } `
-                | Measure-Object `
-                | Select-Object -ExpandProperty Count;
-
-            
-            $zone.infbxl_ext_ipv4_count = $records `
-                | ?{ $_.RecordType -eq "A" -and $_.RecordData.IPv4Address -notmatch $privateIpv4Ranges } `
-                | Measure-Object `
-                | Select-Object -ExpandProperty Count;
-
-
-            $zone.infbxl_ext_ipv6_count = $records `
-                | ?{ $_.RecordType -eq "AAAA" -and $_.RecordData.IPv6Address -notmatch $privateIpv6Ranges -and $_.RecordData.IPv6Address -notmatch $localIpv6Ranges } `
-                | Measure-Object `
-                | Select-Object -ExpandProperty Count;
-
-
-            $zone.infbxl_int_ipv6_count = $records `
-                | ?{ $_.RecordType -eq "AAAA" -and $_.RecordData.IPv6Address -match $privateIpv6Ranges -and $_.RecordData.IPv6Address -notmatch $localIpv6Ranges } `
-                | Measure-Object `
-                | Select-Object -ExpandProperty Count;
-
-
-            $zone.infbxl_loc_ipv6_count = $records `
-                | ?{ $_.RecordType -eq "AAAA" -and $_.RecordData.IPv6Address -notmatch $privateIpv6Ranges -and $_.RecordData.IPv6Address -match $localIpv6Ranges } `
-                | Measure-Object `
-                | Select-Object -ExpandProperty Count;
-
-
-            #region If the zone is reverse
-            if ($zone.IsReverseLookupZone)
-            {
-                $zoneRangePrefix = $zone.ZoneName.split(".")[2] + "." + $zone.ZoneName.split(".")[1] + "." + $zone.ZoneName.split(".")[0] + ".";
-                $zone.infbxl_ext_reverse_count = $records `
-                    | ?{ $_.RecordType -eq "PTR" -and $zoneRangePrefix -notmatch $privateIpv4Ranges } `
-                    | Measure-Object `
-                    | Select-Object -ExpandProperty Count;
-
-                $zone.infbxl_int_reverse_count = $records `
-                    | ?{ $_.RecordType -eq "PTR" -and $zoneRangePrefix -match $privateIpv4Ranges } `
-                    | Measure-Object `
-                    | Select-Object -ExpandProperty Count;
-            }
-            #endregion /If the zone is reverse
-            #endregion /Counting various types of records
-        }
-        #endregion /Loop through zones and count A/AAAA records
-
-
-        #region Loop through zones and classify them
-        foreach ($zone in $zones)
-        {
-            Write-Debug "zone = $($zone.ZoneName)";
-            
-            $isExternalRatio = ($zone.infbxl_ext_ipv4_count + $zone.infbxl_ext_ipv6_count + $zone.infbxl_ext_reverse_count) / ($zone.infbxl_records_count + 0.0000001);
-            $isExternal = $isExternalRatio -ge $extIntRatio;
-            Write-Debug "isExternalRatio = $isExternalRatio; isExternal = $isExternal";
-
-            $isInternal = $isExternalRatio -lt $extIntRatio;
-            Write-Debug "isExternalRatio = $isExternalRatio; isInternal = $isInternal";
-
-            $isIpv6Ratio = ($zone.infbxl_ext_ipv6_count + $zone.infbxl_int_ipv6_count) / ($zone.infbxl_records_count + 0.0000001);
-            $isIpv6 = $isIpv6Ratio -gt $ipv6Ratio;
-            Write-Debug "isIpv6Ratio = $isIpv6Ratio; isIpv6 = $isIpv6";
-
-
-            $zone.infbxl_ext_zone = $isExternal;
-            $zone.infbxl_int_zone = $isInternal;
-            $zone.infbxl_ipv6_zone = $isIpv6;
-        }
-        #endregion /Loop through zones and classify them
+        $zones | %{ $_ | Add-Member -MemberType NoteProperty -Name "DnsServer" -Value $dnsServer };
 
 
         #region Filter forward or reverse zones - or - leave result as is if no filter applied
@@ -7180,33 +6222,6 @@ function Get-IbAdDnsZone {
             [array]$result = $zones;
         }
         #endregion /Filter forward or reverse zones - or - leave result as is if no filter applied
-
-
-        #region Filter 'external' zones
-        if ($external)
-        {
-            "'external' flag passed. Returning 'external' zones." | Write-IbLogfile | Write-Verbose;
-            [array]$result = $result | ?{ $_.infbxl_ext_zone };
-        }
-        #endregion /Filter 'external' zones
-
-
-        #region Filter 'internal' zones
-        if ($internal)
-        {
-            "'internal' flag passed. Returning 'internal' zones." | Write-IbLogfile | Write-Verbose;
-            [array]$result = $result | ?{ $_.infbxl_int_zone };
-        }
-        #endregion /Filter 'internal' zones
-        
-
-        #region Filter 'ipv6' zones
-        if ($ipv6)
-        {
-            "'ipv6' flag passed. Returning IPv6 zones only." | Write-IbLogfile | Write-Verbose;
-            [array]$result = $result | ?{ $_.infbxl_ipv6_zone };
-        }
-        #endregion /Filter 'ipv6' zones
 
 
         "$($result.count) zones found." | Write-IbLogfile | Write-Verbose;
@@ -7230,24 +6245,682 @@ function Get-IbAdDnsZone {
 #endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Get-IbAdDnsZone.ps1
 
 
-#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Select-IbAdDnsServer.ps1
-function Select-IbAdDnsServer {
-    [CmdletBinding(DefaultParameterSetName = "All")]
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/ConvertFrom-IbAdDistinguishedName.ps1
+function ConvertFrom-IbAdDistinguishedName {
+    [CmdletBinding()]
     param (
-        # DNS server FQDN
+        # AD distinguished name
+        [Alias("dn")]
         [Parameter(Mandatory, ValueFromPipeline)]
         [string]
-        $dnsServer,
+        $distinguishedName
+    );
 
-        # Return only 'external' servers
-        [Parameter(ParameterSetName = "External")]
-        [switch]
-        $external,
+    
+    BEGIN {
+        $dnRegex = "^(?:(?<cn>CN=(?<name>[^,]*)),)?(?:(?<path>(?:(?:CN|OU)=[^,]+,?)+),)?(?<domain>(?:DC=[^,]+,?)+)$";
+    }
 
-        # Return only 'internal' servers
-        [Parameter(ParameterSetName = "Internal")]
+    
+    PROCESS {
+        $result = $null;
+
+
+        if ($distinguishedName -notmatch $dnRegex)
+        {
+            "Provided Active Directory distinguished name '$distinguishedName' is not correct." | Write-IbLogfile -severity Error | Write-Error;
+
+            $global:infoblox_errors += [pscustomobject]@{
+                category = "ad_common";
+                message = "Cannot parse AD Distinguished Name '$distinguishedName'.";
+                invokationPath = (Get-PSCallStack)[-1 .. -((Get-PSCallStack).length - 1)].command -join " -> ";
+            };
+
+            return $null;
+        }
+
+
+        if ($distinguishedName -match $dnRegex)
+        {
+            $result = [pscustomobject]@{
+                name = $Matches["name"];
+                cn = $Matches["cn"];
+                path = $Matches["path"];
+                domain = $Matches["domain"];
+                dn = $distinguishedName;
+            };
+
+
+            return $result;
+        }
+    }
+
+    
+    END {}
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/ConvertFrom-IbAdDistinguishedName.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdComputer.ps1
+function Get-IbAdComputer {
+    [CmdletBinding()]
+    param (
+        # Computer name. You can use wildcard characters here.
+        # Documentation: https://learn.microsoft.com/en-us/windows/win32/adsi/search-filter-syntax#wildcards
+        [Parameter()]
+        [string]
+        $name,
+    
+        # Properties to load from AD. Send empty array for all properties.
+        [Parameter()]
+        [string[]]
+        $properties = @("name"),
+
+        # AD domain name (FQDN)
+        [Parameter(Mandatory)]
+        [string]
+        $domain,
+
+        # Use ADSI queries instead of Powershell
+        [Parameter()]
         [switch]
-        $internal
+        $useAdsi,
+
+        # Get servers instead of workstations. Cmdlet will return workstations by default.
+        [Parameter()]
+        [switch]
+        $server
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $params,
+        $ldapFilter,
+        $cacheItem,
+        $noErrors = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        if ($useAdsi)
+        {
+            # #region Using ADSI queries
+            # "'useAdsi' flag was passed. Will be using ADSI queries instead of Powershell." | Write-IbLogfile | Write-Verbose;
+
+            # #region Setting ADSI filter
+            # if ($name)
+            # {
+            #     "Getting workstation '$name' from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+            #     $query = "(&(&(objectCategory=computer)(objectClass=computer)(name=$name)(!operatingSystem=*server*)))";
+            # }
+            # else
+            # {
+            #     "Getting workstations from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+            #     $query = "(&(&(objectCategory=computer)(objectClass=computer)(!operatingSystem=*server*)))";
+            # }
+            # #endregion /Setting ADSI filter
+
+
+            # if ($domain)
+            # {
+            #     $searchRoot = [adsi]"LDAP://$domain/dc=$($domain.Split(".") -join ",dc=")";
+            # }
+
+
+            # [array]$result = Invoke-IbAdAdsiQuery -query $query -searchRoot $searchRoot -properties $properties;
+            # #endregion /Using ADSI queries
+        }
+        else
+        {
+            #region Using Powershell cmdlets
+            $params = @{
+                Server = $domain;
+            };
+
+
+            #region Setting ADSI filter
+            if ($server)
+            {
+                "Getting servers from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+                $ldapFilter = "(operatingSystem=*server*)"
+            }
+            else
+            {
+                "Getting workstations from '$domain' AD domain." | Write-IbLogfile | Write-Verbose;
+                $ldapFilter = "(!operatingSystem=*server*)";
+            }
+
+
+            if ($name)
+            {
+                "Setting filter to name '$name'." | Write-IbLogfile | Write-Verbose;
+                $ldapFilter += "(name=$name)";
+            }
+            #endregion /Setting ADSI filter
+
+
+            try
+            {
+                if (Test-IbServer -serverName $domain -serverType default)
+                {
+                    $command = "Get-ADComputer @params -LDAPFilter `$ldapFilter -Properties `$properties";
+                    [array]$result = Get-ADComputer @params -LDAPFilter $ldapFilter -Properties $properties -ErrorAction Stop;
+                    "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+                    $noErrors = $true;
+                }
+                else
+                {
+                    "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+                    $noErrors = $false;
+                }
+            }
+            catch
+            {
+                $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to get computer objects from AD for '$domain' domain." `
+                    -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+                $noErrors = $false;
+            }
+            #endregion /Using Powershell cmdlets
+        }
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdComputer.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdDomainController.ps1
+function Get-IbAdDomainController {
+    [CmdletBinding()]
+    param (
+        # Domain name
+        [Parameter(Mandatory)]
+        [string]
+        $domain,
+
+        # Filter by Global Catalog role
+        [Parameter()]
+        [switch]
+        $globalCatalog
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $params = $null;
+
+
+        $params = @{
+            Server = $domain;
+        };
+
+
+        #region 'globalCatalog' flag was passed
+        if ($globalCatalog)
+        {
+            "'globalCatalog' flag was passed." | Write-IbLogfile | Write-Verbose;
+            $params.Service = "GlobalCatalog";
+        }
+        #endregion /'globalCatalog' flag was passed
+
+
+        #region Sending request
+        try
+        {
+            if (Test-IbServer -serverName $domain -serverType default)
+            {
+                $command = "Get-ADDomainController @params -Filter `"*`"";
+                [array]$result = Get-ADDomainController @params -Filter "*" -ErrorAction Stop;
+                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+            }
+            else
+            {
+                "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
+            }
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -customErrorMessage "Error while trying to discover AD domain controller for '$domain' domain." `
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+        }
+        #endregion /Sending request
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdDomainController.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdForest.ps1
+function Get-IbAdForest {
+    [CmdletBinding()]
+    param (
+        
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $cacheItem,
+        $noErrors = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        try
+        {
+            $command = "Get-ADForest";
+            $result = Get-ADForest;
+            $noErrors = $true;
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+            $noErrors = $false;
+        }
+        
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdForest.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdReplicationLink.ps1
+function Get-IbAdReplicationLink {
+    [CmdletBinding()]
+    param (
+        # AD site
+        [Parameter()]
+        [string]
+        $siteName
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result = $null;
+
+
+        "Getting replication links from the current AD forest." | Write-IbLogfile | Write-Verbose;
+
+        
+        try
+        {
+            $command = "Get-ADReplicationSiteLink -Filter *";
+            $result = Get-ADReplicationSiteLink -Filter * -ErrorAction Stop;
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+        }
+
+
+        if ($siteName)
+        {
+            "Site filter applied: '$siteName'." | Write-IbLogfile | Write-Verbose;
+
+            $result = $result | %{
+                if ($_.SitesIncluded -match "^CN=$siteName")
+                {
+                    $_;
+                }
+            };
+        }
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdReplicationLink.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSite.ps1
+function Get-IbAdSite {
+    [CmdletBinding()]
+    param (
+        # Site name to return
+        [Parameter()]
+        [string]
+        $name
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $filter,
+        $cacheItem,
+        $noErrors = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        "Getting AD sites from the current AD forest." | Write-IbLogfile | Write-Verbose;
+
+
+        #region Setting ADSI filter
+        if ($name)
+        {
+            "Setting filter to name '$name'." | Write-IbLogfile | Write-Verbose;
+            $filter = "name -eq '$name'";
+        }
+        else
+        {
+            $filter = "*";
+        }
+        #endregion /Setting ADSI filter
+
+
+        try
+        {
+            $command = "Get-ADReplicationSite -Filter `$filter";
+            [array]$result = Get-ADReplicationSite -Filter $filter -ErrorAction Stop;
+            $noErrors = $true;
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+            $noErrors = $false;
+        }
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSite.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSiteByIpAddress.ps1
+function Get-IbAdSiteByIpAddress {
+    [CmdletBinding()]
+    param (
+        # IP addresses to select AD Site from
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $ipAddress
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $subnets,
+        $siteName,
+        $result = $null;
+
+
+        "Getting AD site for the '$ipAddress' IP address." | Write-IbLogfile | Write-Verbose;
+
+
+        $subnets = Get-IbAdSubnet -ipv4;
+
+
+        foreach ($subnet in $subnets)
+        {
+            # $subnet.Site can be $null if subnet is not assigned to a AD site, therefore there is a check on that below
+            if ($(Test-IbIpInCidr -ipAddress $ipAddress -range $subnet.Name) -and $subnet.Site)
+            {
+                $siteName = ConvertFrom-IbAdDistinguishedName -distinguishedName $subnet.Site | Select-Object -ExpandProperty name;
+                $result = Get-IbAdSite -name $siteName;
+
+                "Address '$ipAddress' matches the subnet '$($subnet.Name)' in '$siteName' site." | Write-IbLogfile | Write-Verbose;
+                break;
+            }
+        }
+
+
+        #region If site was not found - then return Default-First-Site-Name
+        if (-not $result)
+        {
+            "Site was not found by searching through IP address. Returning 'Default-First-Site-Name' site." | Write-IbLogfile | Write-Verbose;
+
+            $result = Get-IbAdSite -name "Default-First-Site-Name";
+        }
+        #endregion /If site was not found - then return Default-First-Site-Name
+
+
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSiteByIpAddress.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSubnet.ps1
+function Get-IbAdSubnet {
+    [CmdletBinding(DefaultParameterSetName = "ipv4")]
+    param (
+        # Filter by AD Site
+        [Parameter()]
+        [string]
+        $siteName,
+
+        # Return IPv6 subnets only
+        [Parameter(ParameterSetName = "ipv6")]
+        [switch]
+        $ipv6,
+
+        # Return IPv4 subnets only
+        [Parameter(ParameterSetName = "ipv4")]
+        [switch]
+        $ipv4
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'. Parameter set used: '$($PSCmdlet.ParameterSetName)'." | Write-IbLogfile | Write-Verbose;
+
+        $privateIpv4Ranges = "(^127\.)|(^10\.)|(^172\.1[6-9]\.)|(^172\.2[0-9]\.)|(^172\.3[0-1]\.)|(^192\.168\.)";
+        $privateIpv6Ranges = "^f[cd][0-9a-fA-F]{2}:"; # fc00::/7
+        $localIpv6Ranges = "^fe[89abAB][0-9a-fA-F]:"; # fe80::/10
+    }
+
+    
+    PROCESS {
+        $result,
+        $cacheItem,
+        $noErrors = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        "Getting AD replication subnets." | Write-IbLogfile | Write-Verbose;
+
+        try
+        {
+            $command = "Get-ADReplicationSubnet -Filter `"*`"";
+            [array]$result = Get-ADReplicationSubnet -Filter "*" -ErrorAction Stop;
+            $noErrors = $true;
+        }
+        catch
+        {
+            $_ | New-IbCsErrorMessage -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
+            $noErrors = $false;
+        }
+
+
+        if ($ipv4)
+        {
+            "'ipv4' flag passed. Returning IPv4 subnets only." | Write-IbLogfile | Write-Verbose;
+            [array]$result = $result | ?{$_.name -match $privateIpv4Ranges};
+        }
+
+
+        if ($ipv6)
+        {
+            "'ipv6' flag passed. Returning IPv6 subnets only." | Write-IbLogfile | Write-Verbose;
+            [array]$result = $result | ?{$_.name -match $privateIpv6Ranges -or $_.name -match $localIpv6Ranges};
+        }
+
+
+        if ($siteName)
+        {
+            "'siteName = $siteName' parameter passed." | Write-IbLogfile | Write-Verbose;
+            [array]$result = $result | ?{$_.Site -match "^CN=$siteName"};
+        }
+
+
+        "$($result.count) subnets found." | Write-IbLogfile | Write-Verbose;
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdSubnet.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdUser.ps1
+function Get-IbAdUser {
+    [CmdletBinding(DefaultParameterSetName = "EnabledAndDisabled")]
+    param (
+        # Properties to load from AD. Send empty array for all properties.
+        [Parameter()]
+        [string[]]
+        $properties = @("name"),
+
+        # Search for disabled users only
+        [Parameter(ParameterSetName = "DisabledOnly")]
+        [switch]
+        $disabledOnly,
+
+        # Search for enabled users only
+        [Parameter(ParameterSetName = "EnabledOnly")]
+        [switch]
+        $enabledOnly,
+
+        # Exclude accounts with names finishing with 'SvcAccount'
+        [Parameter()]
+        [switch]
+        $excludeServiceAccounts,
+
+        # Domain to get users from
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [string]
+        $domain
     );
 
     
@@ -7257,40 +6930,73 @@ function Select-IbAdDnsServer {
 
     
     PROCESS {
-        #region Reset variables
-        $externalZones = $null;
-        #endregion /Reset variables
+        $result = $null;
 
 
-        "Checking if DNS server '$dnsServer' is 'internal' or 'external'." | Write-IbLogfile | Write-Verbose;
+        $params = [hashtable]@{
+            Server = $domain;
+            Filter = @();
+        };
 
-        
-        $externalZones = $dnsServer | Get-IbAdDnsZone -external;
 
-
-        # Server can be either 'external' or 'internal', it cannot be 'external' and 'internal' at the same time.
-        # If at least one 'external' zone exist on the server - the whole server is considered as 'external'. Otherwise - it will be 'internal'.
-        # If we've got at least one 'external' zone - return the server
-        if ($PSCmdlet.ParameterSetName -eq "External")
+        #region Processing 'excludeServiceAccounts' parameter
+        if ($excludeServiceAccounts)
         {
-            if ($externalZones)
+            $params.filter += "Name -notlike '*SvcAccount'";
+        }
+        #endregion /Processing 'excludeServiceAccounts' parameter
+
+
+        #region Processing 'disabledOnly' flag
+        if ($disabledOnly)
+        {
+            "'disabledOnly' flag was passed. Setting additional ADSI filter." | Write-IbLogfile | Write-Verbose;
+            $params.filter += "Enabled -eq 'False'";
+        }
+        #endregion /Processing 'disabledOnly' flag
+
+
+        #region Processing 'enabledOnly' flag
+        if ($enabledOnly)
+        {
+            "'enabledOnly' flag was passed. Setting additional ADSI filter." | Write-IbLogfile | Write-Verbose;
+            $params.filter += "Enabled -eq 'True'";
+        }
+        #endregion /Processing 'enabledOnly' flag
+
+
+        try
+        {
+            if ($params.filter.count -eq 0)
             {
-                return $dnsServer;
+                $params.filter = "*";
+            }
+            else
+            {
+                $params.filter = $($params.filter | ?{$_ -ne "*"}) -join " -and ";
+            }
+            "Using filter: '$($params.filter)'." | Write-IbLogfile | Write-Verbose;
+
+            
+            if (Test-IbServer -serverName $domain -serverType default)
+            {
+                $command = "Get-ADUser @params -Properties `$properties";
+                [array]$result = Get-ADUser @params -Properties $properties -ErrorAction Stop;
+                "Objects found: $($result.Count)." | Write-IbLogfile | Write-Verbose;
+            }
+            else
+            {
+                "AD server '$domain' is detected as not available. Skipping." | Write-IbLogfile -severity Warning | Write-Warning;
             }
         }
-        # If we haven't got any 'external' zones - return the server
-        elseif ($PSCmdlet.ParameterSetName -eq "Internal")
+        catch
         {
-            if (-not $externalZones)
-            {
-                return $dnsServer;
-            }
+            $_ | New-IbCsErrorMessage -customErrorMessage "Error while getting users from AD ('$server' domain controller)." `
+                -failedString $ExecutionContext.InvokeCommand.ExpandString($command);
         }
-        elseif ($PSCmdlet.ParameterSetName -eq "All")
-        {
-            "No filter passed. Returning server by default." | Write-IbLogfile | Write-Verbose;
-            return $dnsServer;
-        }
+
+
+        return $result;
     }
 
     
@@ -7298,7 +7004,195 @@ function Select-IbAdDnsServer {
         "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
     }
 }
-#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dns/Select-IbAdDnsServer.ps1
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Get-IbAdUser.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdFqdnInSite.ps1
+function Test-IbAdFqdnInSite {
+    [CmdletBinding()]
+    param (
+        # FQDN to check
+        [Parameter(Mandatory)]
+        [string]
+        $serverName,
+
+
+        # Site name to check
+        [Parameter(Mandatory)]
+        [string]
+        $siteName
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $result,
+        $cacheItem,
+        $noErrors,
+        $ipAddress,
+        $ipAddressInSite = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        "Checking if Server '$serverName' is part of the '$siteName' AD site." | Write-IbLogfile | Write-Verbose;
+
+
+        $ipAddress = $serverName | Resolve-IbDnsRecord;
+
+
+        if ($ipAddress)
+        {
+            [array]$ipAddressInSite = $ipAddress | Test-IbAdIpInSite -siteName $siteName | Sort-Object -Descending;
+            $result = $true -in $ipAddressInSite;
+            $noErrors = $true;
+        }
+        else
+        {
+            "DNS record '$serverName' could not be resolved. Returning 'False'." | Write-IbLogfile -severity Warning | Write-Warning;
+            $result = $false;
+            $noErrors = $true;
+        }
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdFqdnInSite.ps1
+
+
+#region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdIpInSite.ps1
+function Test-IbAdIpInSite {
+    [CmdletBinding()]
+    param (
+        # IP Address to check
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]
+        [ValidateScript(
+            {
+                if ($_ -is [System.String])
+                {
+                    $ipAddressString = $_;
+                }
+                elseif ($_ -is [Microsoft.DnsClient.Commands.DnsRecord])
+                {
+                    $ipAddressString = $_.IpAddress;
+                }
+
+
+                $([System.Net.IPAddress]$ipAddressString).AddressFamily -in @("InterNetwork", "InterNetworkV6");
+            }
+        )]
+        $ipAddress,
+
+
+        # Site name to check
+        [Parameter(Mandatory)]
+        [string]
+        $siteName
+    );
+
+    
+    BEGIN {
+        "Running '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+
+    
+    PROCESS {
+        $ipAddressSite,
+        $cacheItem,
+        $noErrors,
+        $result = $null;
+
+
+        #region Look for results in cache
+        $cacheItem = Get-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters;
+        if ($cacheItem)
+        {
+            "Returning value from cache." | Write-IbLogfile | Write-Verbose;
+            return $cacheItem.Value;
+        }
+        #endregion /Look for results in cache
+
+
+        #region Convert possible types to [System.String]
+        if ($ipAddress -is [System.String])
+        {
+            $ipAddressString = $ipAddress;
+        }
+        elseif ($ipAddress -is [Microsoft.DnsClient.Commands.DnsRecord])
+        {
+            $ipAddressString = $ipAddress.IpAddress;
+        }
+        #endregion /Convert possible types to [System.String]
+
+
+        "Checking if IP address '$ipAddressString' is part of the '$siteName' AD site." | Write-IbLogfile | Write-Verbose;
+
+        
+        if ($([System.Net.IPAddress]$ipAddressString).AddressFamily -eq "InterNetwork")
+        {
+            $ipAddressSite = $ipAddressString | Get-IbAdSiteByIpAddress;
+
+
+            if ($ipAddressSite.Name -eq $siteName)
+            {
+                $result = $true;
+            }
+            else
+            {
+                $result = $false;
+            }
+            $noErrors = $true;
+        }
+        else
+        {
+            "Address '$ipAddressString' is IPv6, not supported for check. Returning '$false'." | Write-IbLogfile -severity Warning | Write-Verbose; # Write-Verbose is intended here to reduce noise.
+            $result = $false;
+            $noErrors = $false;
+        }
+
+
+        #region Update cache
+        if ($noErrors)
+        {
+            "Updating cache with results." | Write-IbLogfile | Write-Verbose;
+            Add-IbCacheItem -cmdlet $MyInvocation.InvocationName -parameters $PSBoundParameters -value $result | Out-Null;
+        }
+        #endregion /Update cache
+        return $result;
+    }
+
+    
+    END {
+        "Finished execution '$($MyInvocation.InvocationName)'." | Write-IbLogfile | Write-Verbose;
+    }
+}
+#endregion //home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_common/Test-IbAdIpInSite.ps1
 
 
 #region /home/runner/work/infoblox-ms-collection/infoblox-ms-collection/src/helpers/public/ad_dhcp/Get-IbAdDhcpExclusion.ps1
@@ -7362,7 +7256,7 @@ function Get-IbAdDhcpExclusion {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv4ExclusionRange -ComputerName $dhcpServer -scopeid $scopeId}.ToString();
+                    $command = "Get-DhcpServerv4ExclusionRange -ComputerName `$dhcpServer -scopeid `$scopeId";
                     [array]$ipv4Exclusions = Get-DhcpServerv4ExclusionRange -ComputerName $dhcpServer -scopeid $scopeId -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -7388,7 +7282,7 @@ function Get-IbAdDhcpExclusion {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv6ExclusionRange -ComputerName $dhcpServer -Prefix $scopePrefix}.ToString();
+                    $command = "Get-DhcpServerv6ExclusionRange -ComputerName `$dhcpServer -Prefix `$scopePrefix";
                     [array]$ipv6Exclusions = Get-DhcpServerv6ExclusionRange -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -7480,7 +7374,7 @@ function Get-IbAdDhcpFailoverConfig {
         {
             if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
             {
-                $command = {Get-DhcpServerv4Failover -ComputerName $dhcpServer}.ToString();
+                $command = "Get-DhcpServerv4Failover -ComputerName `$dhcpServer";
                 $result = Get-DhcpServerv4Failover -ComputerName $dhcpServer -ErrorAction Stop;
                 $noErrors = $true;
             }
@@ -7585,7 +7479,7 @@ function Get-IbAdDhcpOption {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv4OptionValue -ComputerName $dhcpServer -ScopeId $scopeId -All}.ToString();
+                    $command = "Get-DhcpServerv4OptionValue -ComputerName `$dhcpServer -ScopeId `$scopeId -All";
                     $options = Get-DhcpServerv4OptionValue -ComputerName $dhcpServer -ScopeId $scopeId -All -ErrorAction Stop;
                     $options | %{ $_ | Add-Member -MemberType NoteProperty -Name "ScopeId" -Value $scopeId; };
                     $options = $options | ?{$_.OptionId -ne 51};
@@ -7615,7 +7509,7 @@ function Get-IbAdDhcpOption {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv6OptionValue -ComputerName $dhcpServer -Prefix $scopePrefix -All}.ToString();
+                    $command = "Get-DhcpServerv6OptionValue -ComputerName `$dhcpServer -Prefix `$scopePrefix -All";
                     $options = Get-DhcpServerv6OptionValue -ComputerName $dhcpServer -Prefix $scopePrefix -All -ErrorAction Stop;
                     $options | %{ $_ | Add-Member -MemberType NoteProperty -Name "ScopePrefix" -Value $scopePrefix; };
                     $options = $options | ?{$_.OptionId -ne 39};
@@ -7649,7 +7543,7 @@ function Get-IbAdDhcpOption {
                 {
                     if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                     {
-                        $command = {Get-DhcpServerv4OptionValue -ComputerName $dhcpServer -ReservedIP $reservedIp -All}.ToString();
+                        $command = "Get-DhcpServerv4OptionValue -ComputerName `$dhcpServer -ReservedIP `$reservedIp -All";
                         $options = Get-DhcpServerv4OptionValue -ComputerName $dhcpServer -ReservedIP $reservedIp -All -ErrorAction Stop;
                         $options = $options | ?{$_.OptionId -ne 51};
                         $noErrors = $true;
@@ -7675,7 +7569,7 @@ function Get-IbAdDhcpOption {
                 {
                     if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                     {
-                        $command = {Get-DhcpServerv6OptionValue -ComputerName $dhcpServer -ReservedIP $reservedIp -All}.ToString();
+                        $command = "Get-DhcpServerv6OptionValue -ComputerName `$dhcpServer -ReservedIP `$reservedIp -All";
                         $options = Get-DhcpServerv6OptionValue -ComputerName $dhcpServer -ReservedIP $reservedIp -All -ErrorAction Stop;
                         $options = $options | ?{$_.OptionId -ne 39};
                         $noErrors = $true;
@@ -7782,7 +7676,7 @@ function Get-IbAdDhcpReservation {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv4Reservation -ComputerName $dhcpServer -scopeid $scopeId}.ToString();
+                    $command = "Get-DhcpServerv4Reservation -ComputerName `$dhcpServer -scopeid `$scopeId";
                     [array]$ipv4Reservations = Get-DhcpServerv4Reservation -ComputerName $dhcpServer -scopeid $scopeId -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -7808,7 +7702,7 @@ function Get-IbAdDhcpReservation {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv6Reservation -ComputerName $dhcpServer -Prefix $scopePrefix}.ToString();
+                    $command = "Get-DhcpServerv6Reservation -ComputerName `$dhcpServer -Prefix `$scopePrefix";
                     [array]$ipv6Reservations = Get-DhcpServerv6Reservation -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -7940,10 +7834,10 @@ function Get-IbAdDhcpScope {
             "Getting scopes from the DHCP server '$dhcpServer'." | Write-IbLogfile | Write-Verbose;
             if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
             {
-                $command = {Get-DhcpServerv4Scope -ComputerName $dhcpServer}.ToString();
+                $command = "Get-DhcpServerv4Scope -ComputerName `$dhcpServer";
                 $ipv4Scopes = Get-DhcpServerv4Scope -ComputerName $dhcpServer -ErrorAction Stop;
                 
-                $command = {Get-DhcpServerv6Scope -ComputerName $dhcpServer}.ToString();
+                $command = "Get-DhcpServerv6Scope -ComputerName `$dhcpServer";
                 $ipv6Scopes = Get-DhcpServerv6Scope -ComputerName $dhcpServer -ErrorAction Stop;
                 $noErrors = $true;
             }
@@ -8099,7 +7993,7 @@ function Get-IbAdDhcpScopeSize {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv4ScopeStatistics -ComputerName $dhcpServer -ScopeId $scopeId}.ToString();
+                    $command = "Get-DhcpServerv4ScopeStatistics -ComputerName `$dhcpServer -ScopeId `$scopeId";
                     $scopeStatistics = Get-DhcpServerv4ScopeStatistics -ComputerName $dhcpServer -ScopeId $scopeId -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -8127,7 +8021,7 @@ function Get-IbAdDhcpScopeSize {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv6ScopeStatistics -ComputerName $dhcpServer -Prefix $scopePrefix}.ToString();
+                    $command = "Get-DhcpServerv6ScopeStatistics -ComputerName `$dhcpServer -Prefix `$scopePrefix";
                     $scopeStatistics = Get-DhcpServerv6ScopeStatistics -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -8204,7 +8098,7 @@ function Get-IbAdDhcpServer {
         
         try
         {
-            $command = {Get-DhcpServerInDC}.ToString();
+            $command = "Get-DhcpServerInDC";
             [array]$result = Get-DhcpServerInDC -ErrorAction Stop | Select-Object -ExpandProperty DnsName | Select-Object -Unique;
             $noErrors = $true;
 
@@ -8285,7 +8179,7 @@ function Get-IbAdDhcpServerLease {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv4Lease -ComputerName $dhcpServer -scopeid $scopeId}.ToString();
+                    $command = "Get-DhcpServerv4Lease -ComputerName `$dhcpServer -scopeid `$scopeId";
                     [array]$leases = Get-DhcpServerv4Lease -ComputerName $dhcpServer -scopeid $scopeId -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -8311,7 +8205,7 @@ function Get-IbAdDhcpServerLease {
             {
                 if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
                 {
-                    $command = {Get-DhcpServerv6Lease -ComputerName $dhcpServer -Prefix $scopePrefix}.ToString();
+                    $command = "Get-DhcpServerv6Lease -ComputerName `$dhcpServer -Prefix `$scopePrefix";
                     [array]$leases = Get-DhcpServerv6Lease -ComputerName $dhcpServer -Prefix $scopePrefix -ErrorAction Stop;
                     $noErrors = $true;
                 }
@@ -8394,7 +8288,7 @@ function Get-IbAdDhcpServerLps {
 
             if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
             {
-                $command = {Get-DhcpServerv4Statistics -ComputerName $dhcpServer}.ToString();
+                $command = "Get-DhcpServerv4Statistics -ComputerName `$dhcpServer";
                 $ipv4Stats = Get-DhcpServerv4Statistics -ComputerName $dhcpServer -ErrorAction Stop;
             }
             else
@@ -8417,7 +8311,7 @@ function Get-IbAdDhcpServerLps {
                 
             if (Test-IbServer -serverName $dhcpServer -serverType dhcp)
             {
-                $command = {Get-DhcpServerv6Statistics -ComputerName $dhcpServer}.ToString();
+                $command = "Get-DhcpServerv6Statistics -ComputerName `$dhcpServer";
                 $ipv6Stats = Get-DhcpServerv6Statistics -ComputerName $dhcpServer -ErrorAction Stop;
             }
             else
@@ -8591,7 +8485,7 @@ class IbDnsServer : IbServer {
 
 
 #region ./_templates/common--main--body.ps1
-$version = "1.0.13.0.main.114c1bd";
+$version = "1.1.1.0.main.84bb2f8";
 
 
 $dateTime = Get-Date -Format "yyyy-MM-dd_HH-mm-ss";
@@ -8640,8 +8534,6 @@ $params = @{
     processDhcpMetrics = $processDhcpMetrics;
     processGenMetrics = $processGenMetrics;
     noSitesCollection = $noSitesCollection;
-    # ^^ !!! This is a temporary disabled until Solution Designer is supporting the Sites Topology feature !!! ^^
-    # noSitesCollection = $false;
 };
 
 if ($processOneMetricOnly)
@@ -8651,7 +8543,7 @@ if ($processOneMetricOnly)
 
 $metricsToProcess = New-IbCsMetricsList @params;
 
-if ($metricsToProcess.count -gt 1) { "Metrics to be collected:`n$($metricsToProcess)" | Write-IbLogfile | Write-Output; }
+if ($metricsToProcess.count -gt 1) { "Metrics to be collected:`n$($metricsToProcess -join "`n")" | Write-IbLogfile | Write-Output; }
 #endregion /Define metrics to collect
 
 

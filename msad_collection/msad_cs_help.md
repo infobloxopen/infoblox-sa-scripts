@@ -3,7 +3,7 @@
 ## SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.0.13.0.main.114c1bd
+Version: 1.1.1.0.main.84bb2f8
 
 This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
 computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  
@@ -123,7 +123,7 @@ PLEASE NOTE - To enable script execution on the server run:
 
 ## NOTES
 
-The script will collect 27 metrics.
+The script will collect 62 metrics.
 Each metric is collected by a separate Powershell function.
 These functions are included in this script file right after 'param()' keyword.
 Functions have the following name format: 'infoblox_<metric-name>'.
@@ -148,23 +148,24 @@ List of metrics:
     - dhcp_server_count  
     - dhcp_subnet_count  
     - dhcp_vendor  
-    - dns_ext_dnssec_used  
-    - dns_ext_forward_zone_count  
-    - dns_ext_ipv6_used  
-    - dns_ext_qps  
-    - dns_ext_record_count  
-    - dns_ext_reverse_zone_count  
-    - dns_ext_server_count  
-    - dns_int_ad_domain_count  
-    - dns_int_caching_forwarders  
-    - dns_int_dnssec_used  
-    - dns_int_forward_zone_count  
-    - dns_int_ipv6_used  
-    - dns_int_qps  
-    - dns_int_record_count  
-    - dns_int_reverse_zone_count  
-    - dns_int_server_count  
-    - dns_int_vendor  
+    - dns_ad_domain_count  
+    - dns_caching_forwarders  
+    - dns_forward_zone_count  
+    - dns_qps  
+    - dns_record_count  
+    - dns_record_a_count  
+    - dns_record_ptr_count  
+    - dns_record_aaaa_count  
+    - dns_record_txt_count  
+    - dns_record_cname_count  
+    - dns_record_mx_count  
+    - dns_record_ns_count  
+    - dns_record_srv_count  
+    - dns_reverse_zone_count  
+    - dns_zone_dnssec_signed_count  
+    - dns_external_record_count  
+    - dns_server_count  
+    - dns_vendor  
     - gen_active_ip  
     - gen_active_user  
     - gen_site_count  
