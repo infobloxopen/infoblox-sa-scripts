@@ -3,7 +3,7 @@
 ## SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.1.1.0.main.84bb2f8
+Version: 1.1.2.0.main.2801b2e
 
 This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
 computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  
@@ -129,16 +129,6 @@ These functions are included in this script file right after 'param()' keyword.
 Functions have the following name format: 'infoblox_<metric-name>'.
 
 Each function in its turn has help section that describes the logic.
-
-Most of DNS-related metrics separated by `int` and `ext` which stand for `internal` and `external` correspondingly.
-By the script design, and in order to ensure 
-correct calculations later, the following statements are true:
-
-    - DNS zone considered as 'external' if more than 30% of records are pointing to non-local IP addresses (non-RFC-1918). Otherwise it's considered as 'internal'.
- 
-    - DNS server considered as 'external' if it's hosting at least one 'external' DNS zone. Otherwise it's considered as 'internal'.
- 
-
 
 List of metrics:
 
