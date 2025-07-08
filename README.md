@@ -7,6 +7,6 @@ Infoblox sales acceleration scripts are a set of scripts that can be used to aut
 - `collections`: A set of collection scripts to gather acurate and up-to-date information for Infoblox Solutions/Proposal. The scripts include the following:
   - `msad-cs`: Gathers up-to-date DDI information from a customers/prospects Microsoft Active Directory environment.
 
-Collection scrits
+Collection Scripts
 ============
 The latest version of collection scripts (MSAD and ISC) and their documentation can be downloaded by the following link: https://github.com/infobloxopen/infoblox-sa-scripts/releases/tag/latest.
