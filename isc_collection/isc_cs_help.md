@@ -33,32 +33,29 @@ Irrelevantly of the usage scenario, the process looks like:
 3. Some configuration data is collected as metrics.
 4. DNS zone files are read to caclulate metrics.
 
-Most of DNS-related metrics separated by `int` and `ext` which stand for `internal` and `external` correspondingly. By the script design, and in order to ensure  correct calculations later, the following statements are true:
-- DNS zone considered as 'external' if more than 30% of records are pointing to non-local IP addresses (non-RFC-1918). Otherwise it's considered as 'internal'.
-- DNS server considered as 'external' if it's hosting at least one 'external' DNS zone. Otherwise it's considered as 'internal'.
-
 ### Metrics
 This is a list of collected metrics and their short description.
 
-| Metric                     | Description                                                                                                 |
-|----------------------------|-------------------------------------------------------------------------------------------------------------|
-| gen_vendor                 | Linux server information.                                                                                   |
-| dns_ext_server_count       | Count of processed DNS servers (external).                                                                  |
-| dns_ext_forward_zone_count | Number of forward DNS Zones (external).                                                                     |
-| dns_ext_reverse_zone_count | Number of reverse DNS Zones (external).                                                                     |
-| dns_ext_record_count       | Count of DNS records contained in all zones (external).                                                     |
-| dns_ext_qps                | Average queries per second (QPS) (external).                                                                |
-| dns_ext_dnssec_used        | Existence of at least one DNSSEC record (NSEC, ...) in any forward zone (external).                         |
-| dns_ext_ipv6_used          | Existence of at least one v6 related record (AAAA) record in any zone using a private v6 prefix (external). |
-| dns_int_vendor             | BIND9 server version (internal).                                                                            |
-| dns_int_server_count       | Count of processed DNS servers (internal).                                                                  |
-| dns_int_forward_zone_count | Number of forward DNS Zones (internal).                                                                     |
-| dns_int_reverse_zone_count | Number of reverse DNS Zones (internal).                                                                     |
-| dns_int_record_count       | Count of DNS records contained in all zones (internal).                                                     |
-| dns_int_caching_forwarders | Count of forwarders (internal).                                                                             |
-| dns_int_qps                | Average queries per second (QPS) (internal).                                                                |
-| dns_int_ipv6_used          | Existence of at least one v6 related record (AAAA) record in any zone using a private v6 prefix (internal). |
-| dns_int_dnssec_used        | Existence of at least one DNSSEC record (NSEC, ...) in any forward zone (internal).                         |
+| Metric                       | Description                                           |
+|------------------------------|-------------------------------------------------------|
+| gen_vendor                   | Linux server information.                             |
+| dns_vendor                   | BIND9 server version.                                 |
+| dns_server_count             | Count of processed DNS servers.                       |
+| dns_zone_dnssec_signed_count | Count of signed primary DNS zones.                    |
+| dns_external_record_count    | Number of records pointing to non-RFC-1918 addresses. |
+| dns_forward_zone_count       | Number of forward DNS Zones.                          |
+| dns_reverse_zone_count       | Number of reverse DNS Zones.                          |
+| dns_record_count             | Count of DNS records contained in all zones.          |
+| dns_record_a_count           | Count of A records in all primary zones.              |
+| dns_record_ptr_count         | Count of PTR records in all primary zones.            |
+| dns_record_aaaa_count        | Count of AAAA records in all primary zones.           |
+| dns_record_txt_count         | Count of TXT records in all primary zones.            |
+| dns_record_cname_count       | Count of SNAME records in all primary zones.          |
+| dns_record_mx_count          | Count of MX records in all primary zones.             |
+| dns_record_ns_count          | Count of NS records in all primary zones.             |
+| dns_record_srv_count         | Count of SRV records in all primary zones.            |
+| dns_caching_forwarders       | Count of forwarders.                                  |
+| dns_qps                      | Average queries per second (QPS).                     |
 
 
 ### QPS (queries per second) metric
@@ -67,7 +64,7 @@ To collect QPS metric, it's required that BIND server is configured to collect s
 **Important**  
 To get accurate QPS, it's important to update statistics file frequently. The solution will try to update statistics file by running `rndc stats` command, but most likely will fail, because elevated permissions are required to do that. The command failure will be logged as `Error` with two additional `Warning` records. But that particular failure is considered as `Warning`, meaning, this will not halt the execution.
   
-QPS can be collected in all scenarios except `packer` (it's impossible to get BIND service uptime in this scenario), but during `mount` solution will not try to update statistics.  
+QPS can be collected in all scenarios except `mount` (it's impossible to get BIND service uptime in this scenario).  
   
 In any case, to produce statistics that can be accountable, it's required that the statistics file is refreshed (by `rndc stats`) **AFTER** latest service restart, otherwise, statistics will be 100% untruthful. The solution will check that condition and will discard any QPS calculations if the condition is not met.
 
@@ -144,13 +141,13 @@ The customer will receive a download URL for this script via e-mail from Sales t
 This script will trigger required actions. It requires a parameter to be provided, that will be parsed and various values will be passed to corresponding Python scripts.
 
 Usage:  
-`./isc_cs_run-solution.sh --mode|-m <dns|dhcp> --scenario|-s <local|packer|ssh|mount> [--server|-c <servers list>] [--path|-p <path>] ... [<repeat set of parameters>]`
+`./isc_cs_run-solution.sh --mode|-m <dns|dhcp> --scenario|-s <local|packer|ssh|mount> [--server|-c <servers list>] [--path|-p <path>] ... [<repeat set of parameters>] [--verbosity|-v <0|1|2>]`
 
 Usage examples:  
 `./isc_cs_run-solution.sh --mode dns --scenario ssh --server 10.10.6.30,10.10.6.31 --mode dhcp --scenario local`  
-`./isc_cs_run-solution.sh --mode dhcp --scenario local --path /mnt/`  
+`./isc_cs_run-solution.sh --mode dhcp --scenario local --path /mnt/ --verbosity 1`  
 `./isc_cs_run-solution.sh -m dns -s packer -p /home/user/data/`  
-`./isc_cs_run-solution.sh -m dhcp -s local -m dhcp -s ssh -c 10.10.0.1 -m dns -s packer --path ./dns_data/`  
+`./isc_cs_run-solution.sh -m dhcp -s local -m dhcp -s ssh -c 10.10.0.1 -m dns -s packer --path ./dns_data/ -v 2`  
 
 ## *Packer* scripts (only for *Packer* scenario)
 There are two **Packer** scripts:
@@ -168,3 +165,34 @@ Usage:
 ### ./packer-script/dhcp-ib-isc-packer.sh
 Usage:  
 `./dhcp-ib-isc-packer.sh [--conf <dhcpd.conf path>] [--leases <dhcpd.leases path>] [--out <output file path>]`
+
+# Logging and verbosity levels
+Script will generate log file in the `./@logs/` sub-directory each time it runs. Log file always has the highest possible verbosity level.
+
+In addition to log file, script will produce console output according to defined verbosity levels:
+- (Default) 0 - The most basic messages to track activities.
+- 1 - Information about all executing steps are added to the output.
+- 2 - Values of internal variables are added to the output.
+
+## Log file fields
+Log file is generated in columns:
+
+`DateTime  [Severity Level]  [Verbosity Level]  [QueryID]  [ServerID]  Message`
+
+*For examle:*  
+`2025-07-15 15-15-04->789   [Info]    [1]    [2bec3420]   []           Resetting temporary environment variables.`
+
+### Severity
+Used for easier troubleshooting. Can be `Info`, `Warning` or `Error`.
+
+### Verbosity
+Display verbosity level set to the message.
+
+### QueryID
+Used for easier troubleshooting. Each combination of *mode*, *scneario* and *path (optionally)* parameters will generate *query* in the script logic.  
+For each *query* unique (unique within a single run only, **not hash-based**) ID will be generated.  
+Can be empty if log message is not related to any query.
+
+### ServerID
+Used for easier troubleshooting. For each *server* within each *query* script will generate unique (unique within a single run only, **not hash-based**) ID.  
+Can be empty if log message is not related to any server.
