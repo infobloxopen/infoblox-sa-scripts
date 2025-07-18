@@ -35,8 +35,8 @@ fi
 
 
 #region Hard-coded variables
-DOWNLOAD_URL="https://github.com/infobloxopen/infoblox-sa-scripts/releases/download/latest/isc_cs_1.1.11.0.feature-slsenb-476-updates.588d412.zip"
-EXPECTED_HASH="80D546D5D5D204C48D8436158EA23BCA8F5EC7C1CB210F8131CA18F15853B385"
+DOWNLOAD_URL="https://github.com/infobloxopen/infoblox-sa-scripts/releases/download/latest/isc_cs_1.1.12.0.feature-slsenb-476-updates.4d85da5.zip"
+EXPECTED_HASH="25895D7C6E00052BA004E458097E76562B8F8FF8BD6CDC4DCF1942FAACC2BD6B"
 DESTINATION_FOLDER="./ib-isc-cs"
 
 if [ -d "$DESTINATION_FOLDER" ]; then
@@ -104,9 +104,9 @@ echo "    [!!!] Please find detailed usage instructions in $DESTINATION_FOLDER/R
 echo " "
 echo "    Quick run:"
 echo "    cd $DESTINATION_FOLDER"
-echo "    ./isc_cs_run-solution.sh --mode|-m <dns|dhcp> --scenario|-s <local|packer|ssh|mount> [--server|-c <servers list>] [--path|-p <path>] ... [<repeat set of parameters>]"
+echo "    ./isc_cs_run-solution.sh --mode|-m <dns|dhcp> --scenario|-s <local|packer|ssh|mount> [--server|-c <servers list>] [--path|-p <path>] ... [<repeat set of parameters>] [--verbosity|-v <0|1|2>]"
 echo " "
 echo "    Examples:"
 echo "    ./isc_cs_run-solution.sh --mode dns --scenario ssh --server 10.10.6.30,10.10.6.31"
-echo "    ./isc_cs_run-solution.sh -m dns -s packer -p /home/user/data/"
-echo "    ./isc_cs_run-solution.sh --mode dns --scenario ssh --server 10.10.6.30,10.10.6.31 --mode dhcp --scenario local"
+echo "    ./isc_cs_run-solution.sh -m dns -s packer -p /home/user/data/ -v 2"
+echo "    ./isc_cs_run-solution.sh --mode dns --scenario ssh --server 10.10.6.30,10.10.6.31 --mode dhcp --scenario local --verbosity 1"

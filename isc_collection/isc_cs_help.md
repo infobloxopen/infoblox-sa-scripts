@@ -1,4 +1,5 @@
 # ISC Collection Script (further - ISC CS)
+Version: 1.1.12.0.feature-slsenb-476-updates.4d85da5
 This solution/set of scripts is developed to collect various information about DNS/DHCP infrastructure. Data collected includes basic information about DNS servers, zones, records and statistics; DHCP scopes, leases and statistics.
 
 [!!!] Please review this document to get guide, how to use the solution.
