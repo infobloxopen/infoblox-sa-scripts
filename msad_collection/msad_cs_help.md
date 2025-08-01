@@ -3,19 +3,19 @@
 ## SYNOPSIS
 
 Copyright (C) 2019-2024 Infoblox Inc. All rights reserved.  
-Version: 1.1.2.0.main.2801b2e
+Version: 1.1.3.0.main.23bb17b
 
-This is a script developed to collect various data about AD/DNS/DHCP infrastructure. Data collected includes basic information about AD topology,
-computers, user accounts; DNS zones, records and statistics; DHCP scopes, leases and statistics.  
-[!!!] Please review NOTES section of the help to check on detailed functionality implemented by the script.
+This is a script developed to collect key metrics of AD/DNS/DHCP infrastructure to assist with Universal DDI solution sizing. 
+The data collected includes information of MSAD topology, computers, accounts; DNS zones, records as well as key statistics for DHCP scopes, leases and statistics.
+[!!!] Please review the NOTES section of the help to check on detailed functionality implemented by the script.
 
 The script can be run on any Windows domain-joined machine.  
 [!!!] Please review DESCRIPTION section of the help to check on preprequisites that must be met before running the script.
 
-The script do not run any create/update operation, only read ones, hence ONLY READ permissions are required for the user account that will run the script.  
+The script does not perform any create/update operation, only read ones, hence ONLY READ permissions are required for the user account that will run the script.  
 [!!!] Please review DESCRIPTION section of the help to check on detailed permissions that the user account must have before running the script.
 
-There are some advanced features of this collection script, mainly used for troubleshooting or to provide additional verbosity to output.  
+There are some advanced features of this collection script, used for troubleshooting or to provide additional verbosity to output.  
 Please review NOTES section of the help to get details of supported parameters.
 
 
