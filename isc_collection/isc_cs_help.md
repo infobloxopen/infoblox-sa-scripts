@@ -1,5 +1,5 @@
 # ISC Collection Script (further - ISC CS)
-Version: 1.2.0.0.main.06283c3
+Version: 1.2.1.0.main.812afb9
 
 This solution/set of scripts is developed to collect various information about DNS/DHCP infrastructure. Data collected includes basic information about DNS servers, zones, records and statistics; DHCP scopes, leases and statistics.
 
@@ -28,7 +28,7 @@ The user then copy and extract all archives to some server with CS installed and
 [!!!] You can combine scenarios per servers, for example: use **Packer** for some servers and **Mount** for some others.
 
 ## DNS
-Irrelevantly of the usage scenario, the process looks like:
+Regardless of the selected usage scenario, the process looks like:
 
 1. Detect location of the `named.conf` file, read it, find all `include` statements (recursively), compile complete configuration and parse to get configuration object.
 2. Location of DNS zone files are extracted from the configuration.
